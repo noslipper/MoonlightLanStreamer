@@ -17,20 +17,22 @@ sys.path.insert(0, _here)
 
 import lanstream_core as core
 import icons
+import i18n
+import audio
 from lanstream_ui import Tray
 
-APP_TITLE = "月光极速电子教室"
-APP_VERSION = "v1.2.0"
+APP_TITLE = i18n.t("app_title")
+APP_VERSION = "v1.3.0"
 DEFAULT_HOST = "192.168.110.20"
 
-# 窗口默认尺寸（启动时居中显示）
-WIN_W, WIN_H = 800, 600
+# 窗口默认尺寸（启动时居中显示）；英文文案更长，窗口相应加宽
+WIN_W, WIN_H = (800, 600) if i18n.is_zh() else (880, 600)
 # 左右两张卡片共用的行高（保证"开播/停止"与"一键收看"水平对齐）
 ROW_HEAD = 26     # 标题行（标题 + 状态徽章）
 ROW_LAB = 20      # 说明文字行
 ROW_MID = 38      # IP 输入 / IP 徽章 / 下拉设置行
 BTN_H = 42        # 按钮高度
-FONT_UI = "Microsoft YaHei UI"
+FONT_UI = "Microsoft YaHei UI" if i18n.is_zh() else "Segoe UI"
 # 码率(Mb/s) / 帧率(FPS) 下拉候选（控件可手动输入任意值）
 BITRATE_CHOICES = ["5", "8", "10", "15", "20", "30", "50"]
 FPS_CHOICES = ["30", "60", "75", "90", "120", "144"]
@@ -80,7 +82,7 @@ class FlatButton(tk.Canvas):
         self._fg = fg
         self._radius = radius
         self._cmd = command
-        self._font = font or ("Microsoft YaHei UI", 11, "bold")
+        self._font = font or (FONT_UI, 11, "bold")
         self._ghost = ghost
         self._hover = _shade(color, 0.92)
         self._pressed = _shade(color, 0.84)
@@ -172,7 +174,7 @@ class PillTag(tk.Canvas):
 
     def __init__(self, master, text="", fill="#f3f4f6", fg="#374151",
                  dot=None, height=26, font=None):
-        self._font = font or ("Microsoft YaHei UI", 10)
+        self._font = font or (FONT_UI, 10)
         self._text = text
         self._dot = dot
         tk.Canvas.__init__(self, master, bg=BG, highlightthickness=0, bd=0,
@@ -309,7 +311,7 @@ class StatusProgress(tk.Frame):
         self._cv.pack(side="left")
         self._lb = tk.Label(self, text="", bg=BG, fg=MUT, font=(FONT_UI, 9))
         self._lb.pack(side="left", padx=(8, 0))
-        self.set(0, "正在开播…")
+        self.set(0, i18n.t("st_starting"))
 
     def set(self, pct, text=""):
         pct = max(0, min(100, int(pct)))
@@ -321,6 +323,46 @@ class StatusProgress(tk.Frame):
         fw = int(round(w * pct / 100.0))
         if fw > 0:
             cv.create_rectangle(0, 0, fw, h, fill=self._color, outline="")
+
+
+class AudioLevel(tk.Canvas):
+    """横向音频电平指示器：分段色条（绿 → 黄 → 红）+ 峰值保持，只看"有没有输入"。"""
+
+    SEGS = 30
+
+    def __init__(self, master, height=22, width=200):
+        tk.Canvas.__init__(self, master, bg=PANEL2, height=height, width=width,
+                           highlightthickness=0, bd=0)
+        self._lv = 0.0
+        self._peak = 0.0
+        self.bind("<Configure>", lambda e: self._paint())
+
+    def set(self, lv):
+        self._lv = max(0.0, min(1.0, float(lv)))
+        self._peak = max(self._lv, self._peak * 0.92 - 0.005)
+        self._paint()
+
+    def _paint(self):
+        self.delete("all")
+        w, h = self.winfo_width(), self.winfo_height()
+        if w < 24 or h < 6:
+            return
+        n = self.SEGS
+        gap = 2
+        seg = max(1.0, (w - gap * (n - 1)) / n)
+        lit = int(round(self._lv * n))
+        peak_i = int(round(min(1.0, self._peak) * n))
+        for i in range(n):
+            x0 = i * (seg + gap)
+            x1 = x0 + seg
+            if i < n * 0.66:
+                on, off = "#10b981", "#d1fae5"
+            elif i < n * 0.86:
+                on, off = "#f59e0b", "#fef3c7"
+            else:
+                on, off = "#f43f5e", "#ffe4e6"
+            col = on if i < lit else (off if i < peak_i else "#cbd5e1")
+            self.create_rectangle(x0, 3, x1, h - 3, fill=col, outline="")
 
 
 class Card(tk.Frame):
@@ -389,6 +431,9 @@ class App:
         self.root.after(1200, self._start_polling)
         # 首次显示后把当前全部设置写入配置文件（默认值也会被记录）
         self.root.after(300, self._save_settings)
+        # 音频：按配置启动麦克风采集（电平指示器需要）+ 定时刷新电平条
+        self.root.after(500, self._audio_apply)
+        self.root.after(650, self._tick_audio)
         # 开机自动收看：延迟启动，等运行时释放与界面就绪后再连
         if self.state.get("autowatch"):
             self.root.after(3500, self._auto_watch)
@@ -440,22 +485,26 @@ class App:
     def _build_style(self):
         s = ttk.Style(self.root)
         s.theme_use("clam")
-        s.configure(".", background=BG, foreground=FG, font=("Microsoft YaHei UI", 10))
-        s.configure("Title.TLabel", font=("Microsoft YaHei UI", 15, "bold"),
+        s.configure(".", background=BG, foreground=FG, font=(FONT_UI, 10))
+        s.configure("Title.TLabel", font=(FONT_UI, 15, "bold"),
                     foreground=FG, background=BG)
-        s.configure("Ver.TLabel", font=("Microsoft YaHei UI", 8), foreground=MUT, background=BG)
+        s.configure("Ver.TLabel", font=(FONT_UI, 8), foreground=MUT, background=BG)
         s.configure("Card.TFrame", background=PANEL2)
         s.configure("CardT.TLabel", background=PANEL2, foreground=FG,
-                    font=("Microsoft YaHei UI", 11, "bold"))
+                    font=(FONT_UI, 11, "bold"))
         s.configure("CardDim.TLabel", background=PANEL2, foreground=MUT,
-                    font=("Microsoft YaHei UI", 9))
+                    font=(FONT_UI, 9))
         # 扁平化输入框：无深色高光，浅描边 + 白底
         s.configure("TCombobox", fieldbackground="#ffffff", background="#ffffff", foreground=FG,
                     arrowcolor=ACCENT, bordercolor=CARD_BRD, lightcolor="#ffffff",
                     darkcolor="#dde6ef", padding=4)
-        s.map("TCombobox", bordercolor=[("focus", ACCENT)])
+        s.map("TCombobox", bordercolor=[("focus", ACCENT)],
+              fieldbackground=[("readonly", "#ffffff")],
+              foreground=[("readonly", FG)],
+              selectbackground=[("readonly", "#ffffff")],
+              selectforeground=[("readonly", FG)])
         s.configure("Status.TLabel", background=PANEL2, foreground=FG,
-                    font=("Microsoft YaHei UI", 10, "bold"))
+                    font=(FONT_UI, 10, "bold"))
 
     # ---------- 布局 ----------
     def _build_header(self):
@@ -545,6 +594,11 @@ class App:
         except Exception:
             pass
         try:
+            self.state["mic"] = bool(self.sw_mic.get())
+            self.state["audio_device"] = self.audio_var.get()
+        except Exception:
+            pass
+        try:
             vals = [v for v in self.host_cb["values"] if v]
             if host and host not in vals:
                 vals.insert(0, host)
@@ -573,37 +627,24 @@ class App:
         # row0 标题行：左"一键开播"，右状态徽章
         head = self._fixed(inner, ROW_HEAD)
         head.grid(row=0, column=0, sticky="ew", padx=16, pady=(14, 10))
-        ttk.Label(head, text="一键开播", style="CardDim.TLabel",
+        ttk.Label(head, text=i18n.t("start_hint"), style="CardDim.TLabel",
                   font=(FONT_UI, 9, "bold")).pack(side="left", pady=(2, 0))
-        self.srv = PillTag(head, text="未开播", fill="#f3f4f6",
+        self.srv = PillTag(head, text=i18n.t("st_off"), fill="#f3f4f6",
                            fg="#6b7280", dot="#9ca3af")
         self.srv.pack(side="right")
 
-        # row1 说明行
-        lab = self._fixed(inner, ROW_LAB)
-        lab.grid(row=1, column=0, sticky="ew", padx=16)
-        ttk.Label(lab, text="本机 IP", style="CardDim.TLabel",
-                  font=(FONT_UI, 10, "bold")).pack(side="left")
-
-        # row2 信息行（与右侧 IP 输入框同高，底部对齐）
-        mid = self._fixed(inner, ROW_MID)
-        mid.grid(row=2, column=0, sticky="ew", padx=16, pady=(6, 12))
-        self.srv_ip = PillTag(mid, text="—", fill="#f3f4f6", fg="#4b5563",
-                              font=("Consolas", 10), height=24)
-        self.srv_ip.place(x=0, rely=0.5, anchor="w")
-
-        # row3/row4 画质设置：码率 / 帧率（下拉可选 + 可手动输入）
+        # row1/row2 视频：码率 / 帧率（下拉可选 + 可手动输入）
         slab = self._fixed(inner, ROW_LAB)
-        slab.grid(row=3, column=0, sticky="ew", padx=16)
+        slab.grid(row=1, column=0, sticky="ew", padx=16)
         slab.columnconfigure(0, weight=1, uniform="s")
         slab.columnconfigure(1, weight=1, uniform="s")
-        ttk.Label(slab, text="码率 (Mb/s)", style="CardDim.TLabel",
+        ttk.Label(slab, text=i18n.t("bitrate"), style="CardDim.TLabel",
                   font=(FONT_UI, 10, "bold")).grid(row=0, column=0, sticky="w")
-        ttk.Label(slab, text="帧率 (FPS)", style="CardDim.TLabel",
+        ttk.Label(slab, text=i18n.t("fps"), style="CardDim.TLabel",
                   font=(FONT_UI, 10, "bold")).grid(row=0, column=1, sticky="w", padx=(6, 0))
 
         setrow = self._fixed(inner, ROW_MID)
-        setrow.grid(row=4, column=0, sticky="ew", padx=16, pady=(6, 12))
+        setrow.grid(row=2, column=0, sticky="ew", padx=16, pady=(6, 10))
         setrow.columnconfigure(0, weight=1, uniform="s")
         setrow.columnconfigure(1, weight=1, uniform="s")
         setrow.rowconfigure(0, weight=1)
@@ -621,15 +662,51 @@ class App:
             for _ev in ("<<ComboboxSelected>>", "<FocusOut>", "<Return>"):
                 _cb.bind(_ev, self._save_settings)
 
-        # row5 按钮行（与右侧"一键收看"同一行高）
+        # row3 音频标签行：左"音频输入设备"，右侧"麦克风"开关
+        alab = self._fixed(inner, ROW_LAB)
+        alab.grid(row=3, column=0, sticky="ew", padx=16)
+        ttk.Label(alab, text=i18n.t("audio_input"), style="CardDim.TLabel",
+                  font=(FONT_UI, 10, "bold")).pack(side="left")
+        self.sw_mic = ToggleSwitch(alab, on=bool(self.state.get("mic")),
+                                   color=GREEN, width=40, height=21,
+                                   command=self._on_mic)
+        self.sw_mic.pack(side="right", pady=(0, 1))
+        tk.Label(alab, text=i18n.t("mic"), bg=PANEL2, fg=MUT,
+                 font=(FONT_UI, 9)).pack(side="right", padx=(0, 8))
+
+        # row4 音频输入设备下拉（首项=系统声音默认输出）
+        self._audio_devs = audio.list_inputs()
+        arow = self._fixed(inner, ROW_MID)
+        arow.grid(row=4, column=0, sticky="ew", padx=16, pady=(6, 8))
+        arow.columnconfigure(0, weight=1)
+        arow.rowconfigure(0, weight=1)
+        sys_label = i18n.t("audio_system")
+        choices = [sys_label] + self._audio_devs
+        saved_dev = self.state.get("audio_device") or sys_label
+        if saved_dev not in choices:
+            saved_dev = sys_label
+        self.audio_var = tk.StringVar(value=saved_dev)
+        self.cb_audio = ttk.Combobox(arow, textvariable=self.audio_var,
+                                     font=(FONT_UI, 9), values=choices, height=8,
+                                     state="readonly")
+        self.cb_audio.grid(row=0, column=0, sticky="nsew")
+        self.cb_audio.bind("<<ComboboxSelected>>", self._on_audio_dev)
+
+        # row5 横向音频电平指示器
+        lvrow = self._fixed(inner, 24)
+        lvrow.grid(row=5, column=0, sticky="ew", padx=16, pady=(0, 10))
+        self.lvl = AudioLevel(lvrow, height=22)
+        self.lvl.pack(fill="both", expand=True)
+
+        # row6 按钮行（与右侧"一键收看"同一行高）
         btns = tk.Frame(inner, bg=PANEL2)
-        btns.grid(row=5, column=0, sticky="ew", padx=16, pady=(4, 16))
+        btns.grid(row=6, column=0, sticky="ew", padx=16, pady=(4, 16))
         btns.columnconfigure(0, weight=1, uniform="b")
         btns.columnconfigure(1, weight=1, uniform="b")
-        self.btn_start = FlatButton(btns, text="一键开播", icon=self._icons["play"],
+        self.btn_start = FlatButton(btns, text=i18n.t("start"), icon=self._icons["play"],
                                     color=GREEN, height=BTN_H, command=self.do_start)
         self.btn_start.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        self.btn_stop = FlatButton(btns, text="停止", icon=self._icons["stop"],
+        self.btn_stop = FlatButton(btns, text=i18n.t("stop"), icon=self._icons["stop"],
                                    color=RED, height=BTN_H, command=self.do_stop,
                                    state="disabled")
         self.btn_stop.grid(row=0, column=1, sticky="ew")
@@ -642,12 +719,12 @@ class App:
 
         head = self._fixed(inner, ROW_HEAD)
         head.grid(row=0, column=0, sticky="ew", padx=16, pady=(14, 10))
-        ttk.Label(head, text="一键收看", style="CardDim.TLabel",
+        ttk.Label(head, text=i18n.t("watch_hint"), style="CardDim.TLabel",
                   font=(FONT_UI, 9, "bold")).pack(side="left", pady=(2, 0))
 
         lab = self._fixed(inner, ROW_LAB)
         lab.grid(row=1, column=0, sticky="ew", padx=16)
-        ttk.Label(lab, text="目标主机 IP", style="CardDim.TLabel",
+        ttk.Label(lab, text=i18n.t("target_host"), style="CardDim.TLabel",
                   font=(FONT_UI, 10, "bold")).pack(side="left")
 
         mid = self._fixed(inner, ROW_MID)
@@ -662,7 +739,7 @@ class App:
         self.host_cb.grid(row=0, column=0, sticky="nsew")
         for _ev in ("<<ComboboxSelected>>", "<FocusOut>", "<Return>"):
             self.host_cb.bind(_ev, self._save_settings)
-        self.btn_scan = FlatButton(mid, text="检测", icon=self._icons["scan"],
+        self.btn_scan = FlatButton(mid, text=i18n.t("scan"), icon=self._icons["scan"],
                                    color=CYAN, height=ROW_MID, width=86,
                                    font=(FONT_UI, 10, "bold"), command=self.do_scan)
         self.btn_scan.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
@@ -670,22 +747,26 @@ class App:
         # row3/row4 与左侧画质设置行同高：开机自动收看开关
         lab3 = self._fixed(inner, ROW_LAB)
         lab3.grid(row=3, column=0, sticky="ew", padx=16)
-        ttk.Label(lab3, text="开机自动收看", style="CardDim.TLabel",
+        ttk.Label(lab3, text=i18n.t("autowatch"), style="CardDim.TLabel",
                   font=(FONT_UI, 10, "bold")).pack(side="left")
         auto = self._fixed(inner, ROW_MID)
         auto.grid(row=4, column=0, sticky="ew", padx=16, pady=(6, 12))
-        tk.Label(auto, text="开启后启动软件即自动连接并收看",
+        tk.Label(auto, text=i18n.t("autowatch_tip"),
                  bg=PANEL2, fg=MUT, font=(FONT_UI, 9), anchor="w").pack(
             side="left", fill="both", expand=True)
         self.sw_auto = ToggleSwitch(auto, on=bool(self.state.get("autowatch")),
                                     color=ACCENT, command=self._on_autowatch)
         self.sw_auto.pack(side="right", pady=(ROW_MID - 24) // 2 - 6)
 
-        # row5 按钮行
+        # row5 占位：与左侧音频电平条同高，保证两侧按钮水平对齐
+        ph = self._fixed(inner, 24)
+        ph.grid(row=5, column=0, sticky="ew", padx=16, pady=(0, 10))
+
+        # row6 按钮行
         btns = tk.Frame(inner, bg=PANEL2)
-        btns.grid(row=5, column=0, sticky="ew", padx=16, pady=(4, 16))
+        btns.grid(row=6, column=0, sticky="ew", padx=16, pady=(4, 16))
         btns.columnconfigure(0, weight=1)
-        self.btn_watch = FlatButton(btns, text="一键收看", icon=self._icons["watch"],
+        self.btn_watch = FlatButton(btns, text=i18n.t("watch"), icon=self._icons["watch"],
                                     color=ACCENT, height=BTN_H, command=self.do_watch)
         self.btn_watch.grid(row=0, column=0, sticky="ew")
 
@@ -698,7 +779,7 @@ class App:
         bar.grid(row=0, column=0, sticky="ew")
         bar.columnconfigure(0, weight=1)
         # 用 tk.Label（bg 与 bar 同色）避免 ttk 主题白底块
-        tk.Label(bar, text="系统日志", bg=LOG_BG, fg=LOG_DIM,
+        tk.Label(bar, text=i18n.t("log_title"), bg=LOG_BG, fg=LOG_DIM,
                  font=(FONT_UI, 10, "bold")).grid(
             row=0, column=0, sticky="w", padx=14, pady=(8, 4))
         tk.Label(bar, text="CONSOLE ACTIVE", bg=LOG_BG, fg=LOG_DIM,
@@ -710,7 +791,7 @@ class App:
                            borderwidth=0, highlightthickness=0,
                            spacing1=2, spacing3=2)
         self.log.grid(row=1, column=0, sticky="nsew")
-        self._log("就绪 · 系统托盘常驻，单击呼出/最小化，右键更多操作")
+        self._log(i18n.t("ready_log"))
 
     def _build_statusbar(self):
         """窗口底部状态栏：左侧运行状态，右侧本机 IP 与版本。"""
@@ -720,10 +801,10 @@ class App:
         row = tk.Frame(outer, bg=BG)
         row.pack(side="top", fill="x", pady=(6, 0))
         row.columnconfigure(0, weight=1)
-        self.sb_state = tk.Label(row, text="● 未开播", bg=BG, fg=MUT,
+        self.sb_state = tk.Label(row, text=i18n.t("st_idle_dot"), bg=BG, fg=MUT,
                                  font=(FONT_UI, 9))
         self.sb_state.grid(row=0, column=0, sticky="w")
-        self.sb_info = tk.Label(row, text="本机 IP —  ·  " + APP_VERSION, bg=BG,
+        self.sb_info = tk.Label(row, text=i18n.t("status_ip", "—", APP_VERSION), bg=BG,
                                 fg=MUT, font=(FONT_UI, 9))
         self.sb_info.grid(row=0, column=0, sticky="e")
         # 进度条用 place 叠在整行正中（不受左右文字宽度影响）
@@ -751,17 +832,18 @@ class App:
 
     def _start_polling(self):
         self._refresh_status()
-        self.root.after(2000, self._start_polling)
+        self.root.after(1500, self._start_polling)
 
     # ---------- 状态栏进度条 ----------
-    def _progress_show(self, pct=0, text="正在开播…"):
+    def _progress_show(self, pct=0, text=None):
+        text = text or i18n.t("st_starting")
         # 先更新内容再摆放，保证 place 用的是最新尺寸（居中才准）
         self.sb_prog.set(pct, text or ("%d%%" % int(pct)))
         if not self._prog_visible:
             self.sb_prog.place(relx=0.5, rely=0.5, anchor="center")
             self._prog_visible = True
         try:
-            self.sb_state.configure(text="● 正在开播…", fg=GREEN)
+            self.sb_state.configure(text=i18n.t("st_starting_dot"), fg=GREEN)
         except Exception:
             pass
 
@@ -770,11 +852,12 @@ class App:
             self.sb_prog.place_forget()
             self._prog_visible = False
 
-    def _progress_done(self, text="开播完成"):
-        self._progress_show(100, text)
+    def _progress_done(self, text=None):
+        self._progress_show(100, text or i18n.t("p_done"))
         self.root.after(900, self._progress_hide)
 
-    def _progress_fail(self, text="开播失败"):
+    def _progress_fail(self, text=None):
+        text = text or i18n.t("start_fail")
         try:
             self.sb_state.configure(text="● " + text, fg=RED)
         except Exception:
@@ -784,32 +867,37 @@ class App:
     def _refresh_status(self):
         st = core.server_status()
         clients = int(st.get("clients") or 0)
+        # 客户端数量变化时写一条日志，课堂上能直观看到谁连上/断开
+        if st["running"] and clients != getattr(self, "_last_clients", -1):
+            if getattr(self, "_last_clients", -1) >= 0 or clients:
+                self._log(i18n.t("clients_changed", clients))
+            self._last_clients = clients
         if st["streaming"]:
-            self.srv.set(text="正在直播", fill="#ffe4e6", fg="#e11d48", dot="#f43f5e")
-            sb_txt = ("● 正在直播 · 已连接 %d 台客户端" % clients) if clients else "● 正在直播"
+            self.srv.set(text=i18n.t("st_live"), fill="#ffe4e6", fg="#e11d48", dot="#f43f5e")
+            sb_txt = i18n.t("st_live_n", clients) if clients else i18n.t("st_live_dot")
             sb_fg = "#f43f5e"
         elif st["running"]:
-            self.srv.set(text="已开播", fill="#ecfdf5", fg="#047857", dot="#10b981")
-            sb_txt, sb_fg = "● 已开播，等待学生端连接", "#10b981"
+            self.srv.set(text=i18n.t("st_ready"), fill="#ecfdf5", fg="#047857", dot="#10b981")
+            sb_txt, sb_fg = i18n.t("st_ready_wait"), "#10b981"
         else:
-            self.srv.set(text="未开播", fill="#f3f4f6", fg="#6b7280", dot="#9ca3af")
-            sb_txt, sb_fg = "● 未开播", MUT
+            self.srv.set(text=i18n.t("st_off"), fill="#f3f4f6", fg="#6b7280", dot="#9ca3af")
+            sb_txt, sb_fg = i18n.t("st_idle_dot"), MUT
+            self._last_clients = -1
         if st["running"]:
-            self.btn_start.set_text("正在直播")
             self.btn_start.set_clickable(False)
         else:
-            self.btn_start.set_text("一键开播")
             self.btn_start.set_clickable(True)
-        self.btn_start.set_text("直播中 · %d 台" % clients if (st["running"] and clients) else
-                                ("正在直播" if st["running"] else "一键开播"))
+        self.btn_start.set_text(i18n.t("btn_live_n", clients) if (st["running"] and clients) else
+                                (i18n.t("st_live") if st["running"] else i18n.t("start")))
         self.btn_stop.set_state("normal" if st["running"] else "disabled")
         ips = core.lan_ips()
-        self.srv_ip.set(text="、".join(ips) if ips else "—")
         try:
             if not self._prog_visible:      # 开播进度条显示时保留"正在开播…"文案
                 self.sb_state.configure(text=sb_txt, fg=sb_fg)
-            self.sb_info.configure(text="本机 IP %s  ·  %s" %
-                                   ("、".join(ips) if ips else "—", APP_VERSION))
+            self.sb_info.configure(text=i18n.t("status_ip",
+                                               " / ".join(ips) if (ips and not i18n.is_zh())
+                                               else ("、".join(ips) if ips else "—"),
+                                               APP_VERSION))
         except Exception:
             pass
         if self._tray:
@@ -819,12 +907,12 @@ class App:
     def do_start(self):
         mb, fps = self._quality()
         self._save_settings()          # 开播前先落盘（码率/帧率/自动收看等全部设置）
+        self._audio_apply()            # 开播前让麦克风混入生效（若已开启）
 
         def work():
-            self._emit(self._log, "正在开播…（码率 %s Mb/s · %d FPS）"
-                       % (self._num_text(mb, "10"), fps))
+            self._emit(self._log, i18n.t("starting_with", self._num_text(mb, "10"), fps))
             self._emit(self._set_btn, self.btn_start, False)
-            self._emit(self._progress_show, 0, "正在开播…")
+            self._emit(self._progress_show, 0, i18n.t("st_starting"))
 
             def on_prog(pct, text=""):
                 # 工作线程 → 主线程：进度条只在界面线程更新
@@ -834,15 +922,15 @@ class App:
                 res = core.start_server(bitrate_kbps=int(mb * 1000), fps=fps,
                                         on_progress=on_prog)
             except Exception as e:
-                self._emit(self._log, "⚠ 开播异常：" + repr(e))
+                self._emit(self._log, i18n.t("start_err") + repr(e))
                 self._emit(self._progress_fail)
                 self._emit(self._set_btn, self.btn_start, True)
                 self._emit(self._refresh_status)
                 return
             core.ensure_firewall()
             if res["ok"]:
-                self._emit(self._log, "✔ 已开播")
-                self._emit(self._progress_done, "开播完成")
+                self._emit(self._log, i18n.t("started"))
+                self._emit(self._progress_done, i18n.t("p_done"))
             else:
                 self._emit(self._log, "⚠ " + res.get("msg", ""))
                 self._emit(self._progress_fail)
@@ -854,42 +942,85 @@ class App:
         if hasattr(w, "set_clickable"):
             w.set_clickable(on)
 
+    # ---------- 音频（设备选择 / 电平 / 麦克风混入） ----------
+    def _on_audio_dev(self, *_):
+        self._save_settings()
+        self._audio_apply()
+
+    def _on_mic(self, v):
+        self.state["mic"] = bool(v)
+        self._save_settings()
+        self._audio_apply()
+        self._log(i18n.t("mic_on_log") if v else i18n.t("mic_off_log"))
+
+    def _audio_apply(self):
+        """按当前选择启动/停止麦克风采集。
+        选「系统声音」= 不采集；选具体设备 = 采集并显示电平，
+        麦克风开关打开时同时回放到默认输出设备，Sunshine 的 loopback 会把它
+        一起串流出去（学生端即可听到老师讲话）。"""
+        try:
+            m = audio.monitor()
+            dev = self.audio_var.get()
+            playback = bool(self.sw_mic.get())
+            if dev == i18n.t("audio_system"):
+                # 选「系统声音」：麦克风关闭时完全不采集；打开时用默认麦克风做混入
+                if not playback:
+                    m.stop()
+                    return
+                dev = audio.default_input_name()
+                if not dev:
+                    m.stop()
+                    return
+            if m.is_running() and m.device() == dev and m.playback() == playback:
+                return
+            m.start(dev, playback=playback)
+        except Exception:
+            pass
+
+    def _tick_audio(self):
+        try:
+            self.lvl.set(audio.monitor().level())
+        except Exception:
+            pass
+        self.root.after(90, self._tick_audio)
+
     def _on_autowatch(self, v):
         """开机自动收看开关：立即写入配置文件（state.json）。"""
         self.state["autowatch"] = bool(v)
         self._save_settings()
-        self._log("开机自动收看已%s（已保存到配置文件）" % ("开启" if v else "关闭"))
+        self._log(i18n.t("auto_on") if v else i18n.t("auto_off"))
 
     def _auto_watch(self):
         """启动后自动连接并收看（仅在开关开启时）。"""
         if not getattr(self, "sw_auto", None) or not self.sw_auto.get():
             return
         host = (self.host_var.get() or "").strip() or DEFAULT_HOST
-        self._log("开机自动收看：正在连接 %s …" % host)
+        self._log(i18n.t("auto_connecting", host))
         self.do_watch()
 
     def do_stop(self):
         def work():
-            self._emit(self._log, "正在停止…")
+            self._emit(self._log, i18n.t("stopping"))
             try:
                 core.stop_server()
-                self._emit(self._log, "已停止")
+                self._emit(self._log, i18n.t("stopped"))
             except Exception as e:
-                self._emit(self._log, "⚠ 停止异常：" + repr(e))
+                self._emit(self._log, i18n.t("stop_err") + repr(e))
             self._emit(self._refresh_status)
         threading.Thread(target=work, daemon=True).start()
 
     def do_scan(self):
         def work():
-            self._emit(self._log, "正在检测局域网已开播主机…")
+            self._emit(self._log, i18n.t("scanning"))
             try:
                 found = core.scan_lan_hosts()
             except Exception as e:
                 found = []
-                self._emit(self._log, "⚠ 检测异常：" + repr(e))
+                self._emit(self._log, i18n.t("scan_err") + repr(e))
             vals = list(dict.fromkeys([DEFAULT_HOST] + core.lan_ips() + found))
             self._emit(self._set_hosts, vals)
-            self._emit(self._log, "检测完成：" + ("、".join(found) if found else "未发现其他开播主机"))
+            self._emit(self._log, i18n.t("scan_done") +
+                       (", ".join(found) if found else i18n.t("scan_none")))
         threading.Thread(target=work, daemon=True).start()
 
     def _set_hosts(self, vals):
@@ -906,15 +1037,15 @@ class App:
         self._save_settings()
 
         def work():
-            self._emit(self._log, "正在连接 %s …（码率 %s Mb/s · %d FPS）"
-                       % (host, self._num_text(mb, "10"), fps))
+            self._emit(self._log, i18n.t("connecting", host, self._num_text(mb, "10"), fps))
             # 观看本机时确保服务端已开播
             if host in core.lan_ips() or host in ("127.0.0.1", "localhost"):
                 if not core.server_status()["running"]:
-                    self._emit(self._log, "本机未开播，先启动…")
+                    self._emit(self._log, i18n.t("local_not_started"))
                     core.start_server(bitrate_kbps=int(mb * 1000), fps=fps)
             res = core.watch(host, bitrate_kbps=int(mb * 1000), fps=fps)
-            self._emit(self._log, "✔ 已发起收看 %s" % host if res["ok"] else "⚠ " + res.get("msg", ""))
+            self._emit(self._log, i18n.t("watch_ok", host) if res["ok"]
+                       else "⚠ " + res.get("msg", ""))
             self._emit(self._refresh_status)
         threading.Thread(target=work, daemon=True).start()
 
@@ -998,11 +1129,21 @@ class App:
 
     def on_close(self):
         # 常驻托盘：关闭即最小化（同时保存全部设置）
+        _dbg("on_close -> withdraw")
         self._save_settings()
         self.root.withdraw()
 
     def quit(self):
         # 退出 App：同步杀掉 Sunshine（停播）与 Moonlight（停止收看），再结束本程序
+        try:
+            import traceback
+            _dbg("quit() called\n" + "".join(traceback.format_stack()))
+        except Exception:
+            pass
+        try:
+            audio.monitor().stop()          # 先停麦克风采集/回放，避免残留占设备
+        except Exception:
+            pass
         for exe in ("sunshine.exe", "Moonlight.exe"):
             try:
                 core._sp_run(["taskkill", "/IM", exe, "/F", "/T"],
@@ -1148,24 +1289,97 @@ def _activate_by_window() -> bool:
     return ok
 
 
+def _dbg(msg):
+    """启动阶段追踪：仅当 LANSTREAM_DEBUG=1 时写入 startup.log（排查 frozen 启动问题）。"""
+    if os.environ.get("LANSTREAM_DEBUG") != "1":
+        return
+    try:
+        p = os.path.join(core.app_data_dir(), "startup.log")
+        with open(p, "a", encoding="utf-8") as f:
+            f.write("[%s] %s\n" % (time.strftime("%H:%M:%S"), msg))
+    except Exception:
+        pass
+
+
+def _crash_log():
+    import traceback
+    try:
+        p = os.path.join(core.app_data_dir(), "crash.log")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(traceback.format_exc())
+    except Exception:
+        pass
+
+
+def _ensure_stdio():
+    """PyInstaller --windowed 下 sys.stdout/sys.stderr 是 None。
+    一旦任何 Tk 回调抛异常，默认的 report_callback_exception 会 print 到 None，
+    触发二次异常把进程静默杀掉（打包版"闪退"、源码版正常）。这里统一重定向到文件。"""
+    try:
+        if sys.stdout is not None and sys.stderr is not None:
+            return
+        d = core.app_data_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        f = open(os.path.join(d, "error.log"), "a", encoding="utf-8",
+                 errors="replace", buffering=1)
+        if sys.stdout is None:
+            sys.stdout = f
+        if sys.stderr is None:
+            sys.stderr = f
+    except Exception:
+        pass
+
+
+def _hook_tk_errors(root):
+    """Tk 回调异常写入 error.log，而不是打印到不存在的 stderr。"""
+    def report(exc, val, tb):
+        import traceback
+        try:
+            with open(os.path.join(core.app_data_dir(), "error.log"), "a",
+                      encoding="utf-8", errors="replace") as f:
+                f.write("[%s] Tk callback error\n" % time.strftime("%H:%M:%S"))
+                f.write("".join(traceback.format_exception(exc, val, tb)))
+        except Exception:
+            pass
+        _dbg("Tk callback error: %r" % (val,))
+    root.report_callback_exception = report
+
+
 def main():
+    _ensure_stdio()
+    _dbg("main() enter, argv=%r" % (sys.argv,))
     if os.environ.get("LANSTREAM_SELFTEST") == "1":
         _selftest()
         tk.Tk().mainloop()   # 挂起让自检线程执行完毕后 os._exit
         return
     if not _ensure_single_instance():
+        _dbg("single instance: already running -> activate & exit")
         # 已有实例在运行：不弹提示框，直接把那个程序的界面唤到最前面，然后静默退出
         if not _activate_running_instance():
             _activate_by_window()
         return
+    _dbg("single instance ok")
     if not core.is_admin():
+        _dbg("not admin -> relaunch")
         _relaunch_as_admin()
         return
+    _dbg("admin ok -> creating Tk")
     root = tk.Tk()
+    _hook_tk_errors(root)
+    _dbg("Tk created")
     app = App(root)
+    _dbg("App built")
     root.protocol("WM_DELETE_WINDOW", app.on_close)
+    _dbg("entering mainloop")
     root.mainloop()
+    _dbg("mainloop exited")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        _crash_log()
+        raise
