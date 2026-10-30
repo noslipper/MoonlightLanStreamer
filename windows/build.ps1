@@ -67,7 +67,7 @@ $outDir = Join-Path $dir "bin\$Configuration"
 $exe = Join-Path $outDir "MoonClassLanStream.exe"
 if (-not (Test-Path -LiteralPath $exe)) { Write-Error "未生成 $exe" }
 
-# 组装交付目录：exe + runtimes.zip + runtime_config + icon.ico
+# 组装交付目录：exe（含内嵌运行时） + runtime_config + icon.ico
 $dist = Join-Path $root "dist\cs-v$Version"
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $target = Join-Path $dist "月光极速电子教室-v$Version.exe"
@@ -75,12 +75,20 @@ Copy-Item -LiteralPath $exe -Destination $target -Force
 Copy-Item -LiteralPath (Join-Path $dir "Resources\icon.ico") -Destination $dist -Force
 Copy-Item -LiteralPath (Join-Path $root "runtime_config") -Destination $dist -Recurse -Force
 
-$zip = Join-Path $root "runtimes.zip"
-if (Test-Path -LiteralPath $zip) {
-    Copy-Item -LiteralPath $zip -Destination $dist -Force
+$embedded = Join-Path $dir "Resources\runtimes.zip"
+if (Test-Path -LiteralPath $embedded) {
+    # runtimes.zip 已作为嵌入资源打进 exe（单文件分发）
+    Write-Host "运行时已内嵌进 exe（Resources\runtimes.zip，$([math]::Round((Get-Item $embedded).Length / 1MB, 1)) MB）"
 }
 else {
-    Write-Host "提示：未找到 runtimes.zip，运行 python make_runtimes.py 生成后再分发" -ForegroundColor Yellow
+    $zip = Join-Path $root "runtimes.zip"
+    if (Test-Path -LiteralPath $zip) {
+        Copy-Item -LiteralPath $zip -Destination $dist -Force
+        Write-Host "提示：运行时以外置 runtimes.zip 分发（复制 72 MB）" -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "提示：未找到 runtimes.zip，运行 python make_runtimes.py 生成后再分发" -ForegroundColor Yellow
+    }
 }
 
 Write-Host ""

@@ -41,14 +41,15 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.0
 产物目录：`dist\cs-v1.3.0\`
 
 ```
-月光极速电子教室-v1.3.0.exe    ← 主程序（几百 KB）
-runtimes.zip                  ← Sunshine + Moonlight 运行时（72 MB，由 python make_runtimes.py 生成）
+月光极速电子教室-v1.3.0.exe    ← 主程序（~72 MB，运行时已内嵌，单文件分发）
 runtime_config\                ← apps.json + Sunshine Web 凭据模板
 icon.ico                       ← 窗口/托盘图标
 ```
 
-`runtimes.zip` 由仓库根目录的 `python make_runtimes.py` 生成；也可删掉它改由程序内嵌
-（把 zip 放到 `windows\Resources\` 下，csproj 会自动作为嵌入资源，但 exe 会变成 ~75 MB）。
+**单文件分发**：只要 `windows\Resources\runtimes.zip` 存在，构建脚本就会把它作为嵌入资源
+打进 exe（不再复制外置 zip）。首次运行时在后台线程把运行时解压到
+`%LOCALAPPDATA%\LanStream\`（实测 1.1 s，不阻塞窗口出现）。删除 `Resources\runtimes.zip`
+则回退为“exe + 外置 runtimes.zip”的分发方式。
 
 ---
 
@@ -75,6 +76,11 @@ icon.ico                       ← 窗口/托盘图标
 
 想看电平条本身有没有坏，可用合成信号驱动（不依赖麦克风）：设置环境变量
 `LANSTREAM_METER_TEST=1` 后启动程序即可。
+
+想看真实电平数值（排查麦克风没声音时），设 `LANSTREAM_DEBUG=1` 启动，日志区每秒输出
+一行 `[dbg] mic level=… dev=… playback=…`。若一直是 `0.000`，说明采集链路正常但设备
+没给数据——检查系统「声音 → 输入」里该设备是否被静音、音量是否为 0。程序也会在持续
+约 10 秒无输入时于日志提示一次。
 
 ## 与 Python 版的功能对齐
 
