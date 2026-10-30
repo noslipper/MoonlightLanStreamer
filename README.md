@@ -129,9 +129,12 @@ powershell -ExecutionPolicy Bypass -File .\build_exe.ps1 -Version 1.3.0
 
 产物：`dist\月光极速电子教室-v1.3.0.exe`
 
-**注意**：`runtimes.zip`（约 94 MB）不随仓库分发，需由 `make_runtimes.py` 从本机已安装的
-Sunshine / Moonlight 生成。仓库**不包含任何私钥/证书**：首次开播时 Sunshine 会在
-`%LOCALAPPDATA%\LanStream\config\credentials\` 自动生成一套本机证书，每台机器独立。
+**注意**：`runtimes.zip`（约 72 MB）不随仓库分发，需由 `make_runtimes.py` 从本机已安装的
+Sunshine / Moonlight 生成。为压小包体，打包时会剔除两类运行期用不到的文件：
+`sunshine/tools/`（`dxgi-info.exe` 57 MB 显卡诊断工具、`audio-info.exe`、`sunshinesvc.exe`）
+与 Moonlight 的 33 种 Qt 翻译（只留英文），合计省下约 26 MB。仓库**不包含任何私钥/证书**：
+首次开播时 Sunshine 会在 `%LOCALAPPDATA%\LanStream\config\credentials\` 自动生成一套本机证书，
+每台机器独立。
 
 源码运行（调试）：`python lanstream_app.py`。
 
@@ -403,9 +406,12 @@ powershell -ExecutionPolicy Bypass -File .\build_exe.ps1 -Version 1.3.0
 
 Output: `dist\月光极速电子教室-v1.3.0.exe`
 
-**Note**: `runtimes.zip` (~94 MB) is not distributed with the repo; generate it with
-`make_runtimes.py` from your local Sunshine / Moonlight installation. The repository contains
-**no private keys or certificates** — on first start Sunshine generates a machine-specific set under
+**Note**: `runtimes.zip` (~72 MB) is not distributed with the repo; generate it with
+`make_runtimes.py` from your local Sunshine / Moonlight installation. To keep the package small,
+two groups of never-used files are stripped at pack time: `sunshine/tools/` (`dxgi-info.exe`, a 57 MB
+GPU diagnostics tool, plus `audio-info.exe` and `sunshinesvc.exe`) and Moonlight's 33 Qt translation
+files (English kept), saving roughly 26 MB. The repository contains **no private keys or
+certificates** — on first start Sunshine generates a machine-specific set under
 `%LOCALAPPDATA%\LanStream\config\credentials\`.
 
 Run from source (debugging): `python lanstream_app.py`.
