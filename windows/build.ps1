@@ -7,9 +7,10 @@
 #   - Visual Studio Build Tools + ".NET Framework 4.8 SDK / 目标包"
 #   - .NET Framework 4.8 Developer Pack（提供 csc/msbuild）
 param(
-    [string]$Version = "1.3.0",
+    [string]$Version = "1.3.1",
     [string]$Configuration = "Release",
-    [string]$MSBuild = ""
+    [string]$MSBuild = "",
+    [switch]$SkipSign
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,13 +68,11 @@ $outDir = Join-Path $dir "bin\$Configuration"
 $exe = Join-Path $outDir "MoonClassLanStream.exe"
 if (-not (Test-Path -LiteralPath $exe)) { Write-Error "未生成 $exe" }
 
-# 组装交付目录：exe（含内嵌运行时） + runtime_config + icon.ico
-$dist = Join-Path $root "dist\cs-v$Version"
+# 组装交付：单个 exe 直接放 dist 根目录
+$dist = Join-Path $root "dist"
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $target = Join-Path $dist "月光极速电子教室-v$Version.exe"
 Copy-Item -LiteralPath $exe -Destination $target -Force
-Copy-Item -LiteralPath (Join-Path $dir "Resources\icon.ico") -Destination $dist -Force
-Copy-Item -LiteralPath (Join-Path $root "runtime_config") -Destination $dist -Recurse -Force
 
 $embedded = Join-Path $dir "Resources\runtimes.zip"
 if (Test-Path -LiteralPath $embedded) {
@@ -88,6 +87,29 @@ else {
     }
     else {
         Write-Host "提示：未找到 runtimes.zip，运行 python make_runtimes.py 生成后再分发" -ForegroundColor Yellow
+    }
+}
+
+# ---- 数字签名（代码签名证书 + 时间戳）----
+if (-not $SkipSign) {
+    try {
+        $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert -ErrorAction SilentlyContinue |
+                Sort-Object NotAfter -Descending | Select-Object -First 1
+        if (-not $cert) {
+            Write-Host "未找到代码签名证书，创建自签名证书（CN=MoonClass，有效期 3 年）..."
+            $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=MoonClass, O=MoonClass, C=CN" `
+                -KeyUsage DigitalSignature -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 `
+                -NotAfter (Get-Date).AddYears(3) -CertStoreLocation Cert:\CurrentUser\My
+            $cert = Get-ChildItem ("Cert:\CurrentUser\My\" + $cert.Thumbprint)
+        }
+        Write-Host ("签名证书: " + $cert.Subject + "（指纹 " + $cert.Thumbprint + "）")
+        $sig = Set-AuthenticodeSignature -FilePath $target -Certificate $cert `
+            -TimestampServer "http://timestamp.digicert.com" -HashAlgorithm SHA256
+        Write-Host ("签名状态: " + $sig.Status + " " + $sig.StatusMessage)
+        if ($sig.Status -ne "Valid") { Write-Host "警告：签名未通过校验，exe 仍会交付（未签名状态）" -ForegroundColor Yellow }
+    }
+    catch {
+        Write-Host ("签名失败（不影响交付）: " + $_.Exception.Message) -ForegroundColor Yellow
     }
 }
 

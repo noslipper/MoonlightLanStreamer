@@ -1,22 +1,27 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
 namespace MoonClass
 {
-    /// <summary>音频：枚举录音设备 + 采集电平 + 麦克风实时回放。
+    /// <summary>音频：枚举录音设备 + 采集电平 + 麦克风局域网广播。
     ///
-    /// Sunshine 只捕获**系统播放设备**（WASAPI loopback），其协议的 Mic 通道在 Windows 上未实现。
-    /// 所以"教师讲话让学生听到"用最朴素的办法：采集麦克风并实时回放到默认输出设备
-    /// （等价于系统"侦听此设备"，但完全在程序内、可即时开关、不改注册表、不重启音频服务），
-    /// Sunshine 的 loopback 就会把这段声音一起串流出去。</summary>
+    /// 【为什么不再本机回放】旧方案把麦克风实时回放到默认输出，靠 Sunshine 的
+    /// WASAPI loopback 把声音带进串流——副作用是教师从自己音响里听到自己（回声）。
+    /// 现改为：采集到的 PCM 直接以 UDP 广播（端口 48050）发到局域网，
+    /// 学生端客户端（本程序的学生模式）接收后本地播放，教师端不再出声。
+    /// Sunshine 只负责系统声音（媒体/视频），麦克风走独立通道，互不干扰。</summary>
     public class MicAudio
     {
+        public const int UDP_PORT = 48050;
+        public const string MAGIC = "LMS1";
+
         const int WHDR_DONE = 0x00000001;
         const int WHDR_INQUEUE = 0x00000010;
-        const int WAVE_MAPPER = -1;
         const int CALLBACK_NULL = 0;
         const int SAMPLE_RATE = 22050;
         const int CHANNELS = 1;
@@ -25,7 +30,7 @@ namespace MoonClass
         static readonly int BUF_BYTES = SAMPLE_RATE * BLOCK_SEC / 1000 * CHANNELS * BITS / 8;
 
         [StructLayout(LayoutKind.Sequential)]
-        struct WAVEFORMATEX
+        internal struct WAVEFORMATEX
         {
             public short wFormatTag;
             public short nChannels;
@@ -37,7 +42,7 @@ namespace MoonClass
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        struct WAVEHDR
+        internal struct WAVEHDR
         {
             public IntPtr lpData;
             public int dwBufferLength;
@@ -50,7 +55,7 @@ namespace MoonClass
         }
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        struct WAVEINCAPS
+        internal struct WAVEINCAPS
         {
             public short wMid;
             public short wPid;
@@ -62,34 +67,42 @@ namespace MoonClass
             public short wReserved1;
         }
 
-        [DllImport("winmm.dll")] static extern int waveInGetNumDevs();
+        [DllImport("winmm.dll")] internal static extern int waveInGetNumDevs();
         [DllImport("winmm.dll", CharSet = CharSet.Unicode)]
-        static extern int waveInGetDevCapsW(IntPtr uDeviceID, ref WAVEINCAPS caps, int size);
-        [DllImport("winmm.dll")] static extern int waveInOpen(out IntPtr hwi, int device, ref WAVEFORMATEX fmt, IntPtr callback, IntPtr inst, int flags);
-        [DllImport("winmm.dll")] static extern int waveInPrepareHeader(IntPtr hwi, IntPtr hdr, int size);
-        [DllImport("winmm.dll")] static extern int waveInUnprepareHeader(IntPtr hwi, IntPtr hdr, int size);
-        [DllImport("winmm.dll")] static extern int waveInAddBuffer(IntPtr hwi, IntPtr hdr, int size);
-        [DllImport("winmm.dll")] static extern int waveInStart(IntPtr hwi);
-        [DllImport("winmm.dll")] static extern int waveInStop(IntPtr hwi);
-        [DllImport("winmm.dll")] static extern int waveInReset(IntPtr hwi);
-        [DllImport("winmm.dll")] static extern int waveInClose(IntPtr hwi);
-        [DllImport("winmm.dll")] static extern int waveOutOpen(out IntPtr hwo, int device, ref WAVEFORMATEX fmt, IntPtr callback, IntPtr inst, int flags);
-        [DllImport("winmm.dll")] static extern int waveOutPrepareHeader(IntPtr hwo, IntPtr hdr, int size);
-        [DllImport("winmm.dll")] static extern int waveOutUnprepareHeader(IntPtr hwo, IntPtr hdr, int size);
-        [DllImport("winmm.dll")] static extern int waveOutWrite(IntPtr hwo, IntPtr hdr, int size);
-        [DllImport("winmm.dll")] static extern int waveOutReset(IntPtr hwo);
-        [DllImport("winmm.dll")] static extern int waveOutClose(IntPtr hwo);
+        internal static extern int waveInGetDevCapsW(IntPtr uDeviceID, ref WAVEINCAPS caps, int size);
+        [DllImport("winmm.dll")] internal static extern int waveInOpen(out IntPtr hwi, int device, ref WAVEFORMATEX fmt, IntPtr callback, IntPtr inst, int flags);
+        [DllImport("winmm.dll")] internal static extern int waveInPrepareHeader(IntPtr hwi, IntPtr hdr, int size);
+        [DllImport("winmm.dll")] internal static extern int waveInUnprepareHeader(IntPtr hwi, IntPtr hdr, int size);
+        [DllImport("winmm.dll")] internal static extern int waveInAddBuffer(IntPtr hwi, IntPtr hdr, int size);
+        [DllImport("winmm.dll")] internal static extern int waveInStart(IntPtr hwi);
+        [DllImport("winmm.dll")] internal static extern int waveInStop(IntPtr hwi);
+        [DllImport("winmm.dll")] internal static extern int waveInReset(IntPtr hwi);
+        [DllImport("winmm.dll")] internal static extern int waveInClose(IntPtr hwi);
+        [DllImport("winmm.dll")] internal static extern int waveOutOpen(out IntPtr hwo, int device, ref WAVEFORMATEX fmt, IntPtr callback, IntPtr inst, int flags);
+        [DllImport("winmm.dll")] internal static extern int waveOutPrepareHeader(IntPtr hwo, IntPtr hdr, int size);
+        [DllImport("winmm.dll")] internal static extern int waveOutUnprepareHeader(IntPtr hwo, IntPtr hdr, int size);
+        [DllImport("winmm.dll")] internal static extern int waveOutWrite(IntPtr hwo, IntPtr hdr, int size);
+        [DllImport("winmm.dll")] internal static extern int waveOutReset(IntPtr hwo);
+        [DllImport("winmm.dll")] internal static extern int waveOutClose(IntPtr hwo);
+
+        [DllImport("kernel32.dll", EntryPoint = "RtlMoveMemory")]
+        internal static extern void CopyMemory(IntPtr dest, IntPtr src, int count);
 
         static readonly object _lock = new object();
         static float _level;
 
-        IntPtr _hwi, _hwo;
-        IntPtr[] _inHdr, _inBuf, _outHdr, _outBuf;
+        /// <summary>只有直播中才对外广播麦克风（MainForm 每 1.5s 刷新一次）。</summary>
+        public static volatile bool Live;
+
+        IntPtr _hwi;
+        IntPtr[] _inHdr, _inBuf;
         Thread _thread;
         volatile bool _run;
-        bool _playback;
+        bool _send;
         string _device = "";
-        int _oi;
+        UdpClient _udp;
+        List<IPEndPoint> _eps;
+        uint _seq;
         public string LastError = "";
 
         // ---------------- 设备枚举 ----------------
@@ -128,7 +141,7 @@ namespace MoonClass
 
         // ---------------- 状态 ----------------
         public bool IsRunning { get { return _run; } }
-        public bool Playback { get { return _playback; } }
+        public bool Send { get { return _send; } }
         public string Device { get { return _device; } }
 
         public float Level()
@@ -150,11 +163,11 @@ namespace MoonClass
         }
 
         // ---------------- 启停 ----------------
-        public bool Start(string deviceName, bool playback)
+        public bool Start(string deviceName, bool sendMic)
         {
             Stop();
             LastError = "";
-            _playback = playback;
+            _send = sendMic;
             _device = deviceName ?? "";
             var fmt = Format();
             int idx = IndexOf(_device);
@@ -167,16 +180,33 @@ namespace MoonClass
                 return false;
             }
 
-            if (_playback)
+            // 麦克风 UDP 广播：受限广播 + 子网定向广播双保险（收到端按来源去重）
+            if (_send)
             {
-                rc = waveOutOpen(out _hwo, WAVE_MAPPER, ref fmt, IntPtr.Zero, IntPtr.Zero, CALLBACK_NULL);
-                if (rc != 0)
+                try
                 {
-                    LastError = "waveOutOpen rc=" + rc;
-                    _hwo = IntPtr.Zero;
-                    _playback = false;              // 回放不可用时仍保留电平显示
+                    _udp = new UdpClient();
+                    _udp.EnableBroadcast = true;
+                    _eps = new List<IPEndPoint>();
+                    _eps.Add(new IPEndPoint(IPAddress.Broadcast, UDP_PORT));
+                    try
+                    {
+                        foreach (string s in Runtime.LanIps())
+                        {
+                            IPAddress ip;
+                            if (!IPAddress.TryParse(s, out ip)) continue;
+                            byte[] b = ip.GetAddressBytes();
+                            if (b.Length != 4) continue;
+                            var sb = new IPAddress(new byte[] { b[0], b[1], b[2], 255 });
+                            var ep = new IPEndPoint(sb, UDP_PORT);
+                            if (!_eps.Contains(ep)) _eps.Add(ep);
+                        }
+                    }
+                    catch { }
                 }
+                catch (Exception ex) { LastError = "udp " + ex.Message; }
             }
+            else _udp = null;
 
             int hdrSize = Marshal.SizeOf(typeof(WAVEHDR));
             _inHdr = new IntPtr[2];
@@ -192,23 +222,6 @@ namespace MoonClass
                 waveInPrepareHeader(_hwi, h, hdrSize);
                 waveInAddBuffer(_hwi, h, hdrSize);
                 _inHdr[i] = h;
-            }
-
-            if (_hwo != IntPtr.Zero)
-            {
-                _outHdr = new IntPtr[2];
-                _outBuf = new IntPtr[2];
-                for (int i = 0; i < 2; i++)
-                {
-                    _outBuf[i] = Marshal.AllocHGlobal(BUF_BYTES);
-                    IntPtr h = Marshal.AllocHGlobal(hdrSize);
-                    var wh = new WAVEHDR();
-                    wh.lpData = _outBuf[i];
-                    wh.dwBufferLength = BUF_BYTES;
-                    Marshal.StructureToPtr(wh, h, false);
-                    waveOutPrepareHeader(_hwo, h, hdrSize);
-                    _outHdr[i] = h;
-                }
             }
 
             waveInStart(_hwi);
@@ -235,28 +248,17 @@ namespace MoonClass
             catch { }
             try
             {
-                if (_outHdr != null && _hwo != IntPtr.Zero)
-                    foreach (IntPtr h in _outHdr) waveOutUnprepareHeader(_hwo, h, hdrSize);
-            }
-            catch { }
-            try
-            {
                 if (_hwi != IntPtr.Zero) { waveInStop(_hwi); waveInReset(_hwi); waveInClose(_hwi); }
             }
             catch { }
-            try
-            {
-                if (_hwo != IntPtr.Zero) { waveOutReset(_hwo); waveOutClose(_hwo); }
-            }
-            catch { }
+            try { if (_udp != null) _udp.Close(); } catch { }
+            _udp = null;
+            _eps = null;
 
             if (_inBuf != null) foreach (IntPtr p in _inBuf) { try { Marshal.FreeHGlobal(p); } catch { } }
-            if (_outBuf != null) foreach (IntPtr p in _outBuf) { try { Marshal.FreeHGlobal(p); } catch { } }
             if (_inHdr != null) foreach (IntPtr p in _inHdr) { try { Marshal.FreeHGlobal(p); } catch { } }
-            if (_outHdr != null) foreach (IntPtr p in _outHdr) { try { Marshal.FreeHGlobal(p); } catch { } }
-
-            _inHdr = _inBuf = _outHdr = _outBuf = null;
-            _hwi = _hwo = IntPtr.Zero;
+            _inHdr = _inBuf = null;
+            _hwi = IntPtr.Zero;
             lock (_lock) _level = 0f;
         }
 
@@ -274,20 +276,7 @@ namespace MoonClass
 
                     int n = wh.dwBytesRecorded > 0 ? wh.dwBytesRecorded : BUF_BYTES;
                     UpdateLevel(_inBuf[i], n);
-
-                    if (_hwo != IntPtr.Zero && _outHdr != null)
-                    {
-                        int k = _oi % 2;
-                        var oh = (WAVEHDR)Marshal.PtrToStructure(_outHdr[k], typeof(WAVEHDR));
-                        if ((oh.dwFlags & WHDR_INQUEUE) == 0)
-                        {
-                            _oi++;
-                            CopyMemory(_outBuf[k], _inBuf[i], n);
-                            oh.dwBufferLength = n;          // 保留 PREPARED，驱动会在 write 时自行清 DONE/INQUEUE
-                            Marshal.StructureToPtr(oh, _outHdr[k], false);
-                            try { waveOutWrite(_hwo, _outHdr[k], hdrSize); } catch { }
-                        }
-                    }
+                    if (_send && Live && _udp != null) SendBlock(_inBuf[i], n);
 
                     // 保留 WHDR_PREPARED：清掉后 waveInAddBuffer 会返回 UNPREPARED，
                     // 采集在前两个缓冲（约 160ms）后永久停止——电平表不动、麦克风无输出的根因
@@ -300,8 +289,25 @@ namespace MoonClass
             }
         }
 
-        [DllImport("kernel32.dll", EntryPoint = "RtlMoveMemory")]
-        static extern void CopyMemory(IntPtr dest, IntPtr src, int count);
+        void SendBlock(IntPtr pcm, int bytes)
+        {
+            try
+            {
+                byte[] payload = new byte[bytes];
+                Marshal.Copy(pcm, payload, 0, bytes);
+                byte[] pkt = new byte[8 + bytes];
+                Encoding.ASCII.GetBytes(MAGIC, 0, 4, pkt, 0);
+                pkt[4] = (byte)_seq; pkt[5] = (byte)(_seq >> 8);
+                pkt[6] = (byte)(_seq >> 16); pkt[7] = (byte)(_seq >> 24);
+                _seq++;
+                Buffer.BlockCopy(payload, 0, pkt, 8, bytes);
+                foreach (IPEndPoint ep in _eps)
+                {
+                    try { _udp.Send(pkt, pkt.Length, ep); } catch { }
+                }
+            }
+            catch { }
+        }
 
         /// <summary>RMS → dB → 0~1：-55dB 视为静音，0dB 满量程（与 Python 版刻度一致）。</summary>
         void UpdateLevel(IntPtr buf, int bytes)
@@ -330,5 +336,153 @@ namespace MoonClass
             }
             catch { }
         }
+    }
+
+    /// <summary>学生端：接收教室端的麦克风 UDP 广播（48050 端口）并本地播放。
+    /// 仅在收看（Moonlight 运行）期间启用；锁定第一个有效来源，防止多教室串音。</summary>
+    public class MicUdpReceiver : IDisposable
+    {
+        const int WHDR_DONE = 0x00000001;
+        const int WHDR_INQUEUE = 0x00000010;
+        const int WAVE_MAPPER = -1;
+        const int SAMPLE_RATE = 22050;
+        const int CHANNELS = 1;
+        const int BITS = 16;
+        const int BLOCK_SEC = 80;
+        static readonly int BUF_BYTES = SAMPLE_RATE * BLOCK_SEC / 1000 * CHANNELS * BITS / 8;
+        const int NBUF = 4;                             // 320ms 抖动余量
+
+        MicAudio.WAVEFORMATEX Fmt()
+        {
+            var f = new MicAudio.WAVEFORMATEX();
+            f.wFormatTag = 1;
+            f.nChannels = CHANNELS;
+            f.nSamplesPerSec = SAMPLE_RATE;
+            f.nAvgBytesPerSec = SAMPLE_RATE * CHANNELS * BITS / 8;
+            f.nBlockAlign = CHANNELS * BITS / 8;
+            f.wBitsPerSample = BITS;
+            f.cbSize = 0;
+            return f;
+        }
+
+        Thread _thread;
+        volatile bool _run;
+        UdpClient _udp;
+        IntPtr _hwo = IntPtr.Zero;
+        IntPtr[] _hdr, _buf;
+        string _lockIp = "";
+        readonly int _hdrSize = Marshal.SizeOf(typeof(MicAudio.WAVEHDR));
+
+        const int WAVE_MAPPER_RX = -1;
+        [DllImport("winmm.dll")] static extern int waveOutOpen(out IntPtr hwo, int device, ref MicAudio.WAVEFORMATEX fmt, IntPtr callback, IntPtr inst, int flags);
+        [DllImport("winmm.dll")] static extern int waveOutPrepareHeader(IntPtr hwo, IntPtr hdr, int size);
+        [DllImport("winmm.dll")] static extern int waveOutUnprepareHeader(IntPtr hwo, IntPtr hdr, int size);
+        [DllImport("winmm.dll")] static extern int waveOutWrite(IntPtr hwo, IntPtr hdr, int size);
+        [DllImport("winmm.dll")] static extern int waveOutReset(IntPtr hwo);
+        [DllImport("winmm.dll")] static extern int waveOutClose(IntPtr hwo);
+
+        public string SourceIp { get { return _lockIp; } }
+        public bool IsRunning { get { return _run; } }
+
+        public void Start(string expectIp)
+        {
+            if (_run && (string.IsNullOrEmpty(expectIp) || expectIp == _lockIp)) return;
+            Stop();
+            try
+            {
+                _udp = new UdpClient();
+                _udp.ExclusiveAddressUse = false;
+                _udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                _udp.Client.Bind(new IPEndPoint(IPAddress.Any, MicAudio.UDP_PORT));
+                _udp.Client.ReceiveTimeout = 500;
+                // 允许同一台机器多个接收端（极端场景）
+                try { _udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Broadcast, true); } catch { }
+            }
+            catch { try { if (_udp != null) _udp.Close(); } catch { } _udp = null; return; }
+
+            _lockIp = expectIp ?? "";
+            _run = true;
+            _thread = new Thread(Loop);
+            _thread.IsBackground = true;
+            _thread.Name = "MicUdpRx";
+            _thread.Start();
+        }
+
+        public void Stop()
+        {
+            _run = false;
+            if (_thread != null && _thread.IsAlive) { try { _thread.Join(700); } catch { } }
+            _thread = null;
+            try { if (_udp != null) _udp.Close(); } catch { }
+            _udp = null;
+            try { if (_hwo != IntPtr.Zero) waveOutReset(_hwo); } catch { }
+            if (_hdr != null) foreach (IntPtr h in _hdr) { try { waveOutUnprepareHeader(_hwo, h, _hdrSize); } catch { } }
+            try { if (_hwo != IntPtr.Zero) waveOutClose(_hwo); } catch { }
+            _hwo = IntPtr.Zero;
+            if (_hdr != null) foreach (IntPtr p in _hdr) { try { Marshal.FreeHGlobal(p); } catch { } }
+            if (_buf != null) foreach (IntPtr p in _buf) { try { Marshal.FreeHGlobal(p); } catch { } }
+            _hdr = _buf = null;
+            _lockIp = "";
+        }
+
+        void Loop()
+        {
+            // 播放缓冲：先准备好 NBUF 个头，有包就填一个空位
+            _hdr = new IntPtr[NBUF];
+            _buf = new IntPtr[NBUF];
+            var fmt = Fmt();
+            int rc = waveOutOpen(out _hwo, WAVE_MAPPER_RX, ref fmt, IntPtr.Zero, IntPtr.Zero, 0);
+            if (rc != 0) { _hwo = IntPtr.Zero; return; }
+            for (int i = 0; i < NBUF; i++)
+            {
+                _buf[i] = Marshal.AllocHGlobal(BUF_BYTES);
+                IntPtr h = Marshal.AllocHGlobal(_hdrSize);
+                var wh = new MicAudio.WAVEHDR();
+                wh.lpData = _buf[i];
+                wh.dwBufferLength = BUF_BYTES;
+                Marshal.StructureToPtr(wh, h, false);
+                waveOutPrepareHeader(_hwo, h, _hdrSize);
+                _hdr[i] = h;
+            }
+
+            var remote = new IPEndPoint(IPAddress.Any, 0);
+            while (_run)
+            {
+                byte[] data;
+                try
+                {
+                    data = _udp.Receive(ref remote);
+                }
+                catch (SocketException)
+                {
+                    continue;                            // 超时，回去检查 _run
+                }
+                catch { break; }
+                if (data == null || data.Length < 12 || data.Length > 8 + BUF_BYTES) continue;
+                if (data[0] != (byte)'L' || data[1] != (byte)'M' ||
+                    data[2] != (byte)'S' || data[3] != (byte)'1') continue;   // 魔数校验
+                string ip = ((IPEndPoint)remote).Address.ToString();
+                if (_lockIp.Length == 0) _lockIp = ip;
+                else if (_lockIp != ip) continue;
+
+                // 找一个空闲播放位
+                int k = -1;
+                for (int i = 0; i < NBUF; i++)
+                {
+                    var oh = (MicAudio.WAVEHDR)Marshal.PtrToStructure(_hdr[i], typeof(MicAudio.WAVEHDR));
+                    if ((oh.dwFlags & WHDR_INQUEUE) == 0) { k = i; break; }
+                }
+                if (k < 0) continue;                 // 全忙：丢包（比堆延迟好）
+
+                int payload = data.Length - 8;
+                Marshal.Copy(data, 8, _buf[k], payload);
+                var wh2 = (MicAudio.WAVEHDR)Marshal.PtrToStructure(_hdr[k], typeof(MicAudio.WAVEHDR));
+                wh2.dwBufferLength = payload;        // 保留 PREPARED，驱动 write 时自行清标志
+                Marshal.StructureToPtr(wh2, _hdr[k], false);
+                try { waveOutWrite(_hwo, _hdr[k], _hdrSize); } catch { }
+            }
+        }
+
+        public void Dispose() { Stop(); }
     }
 }

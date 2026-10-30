@@ -1,10 +1,10 @@
 ﻿# 月光极速电子教室 —— 一键构建脚本（交付单文件 EXE）
 # 用法：
-#   powershell -ExecutionPolicy Bypass -File .\build_exe.ps1 -Version 1.3.0
+#   powershell -ExecutionPolicy Bypass -File .\build_exe.ps1 -Version 1.3.1
 # 前置：Python 3.12 x64（需自带 Tcl/Tk）、已安装 Sunshine 与 Moonlight（供 make_runtimes.py 收集运行时）
 param(
     [string]$Python  = "",
-    [string]$Version = "1.3.0"
+    [string]$Version = "1.3.1"
 )
 $ErrorActionPreference = "Stop"
 
