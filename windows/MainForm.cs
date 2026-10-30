@@ -57,7 +57,7 @@ namespace MoonClass
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             AutoScaleMode = AutoScaleMode.Dpi;
-            try { Icon = new Icon(Path.Combine(Runtime.ExeDir, "icon.ico")); } catch { }
+            try { Icon = Runtime.LoadAppIcon(); } catch { }
 
             BuildUi();
             LoadStateToUi();
@@ -136,7 +136,7 @@ namespace MoonClass
             var p = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg };
             try
             {
-                var ico = new Icon(Path.Combine(Runtime.ExeDir, "icon.ico"), 28, 28);
+                var ico = Runtime.LoadAppIcon(28, 28);
                 var pb = new PictureBox
                 {
                     Image = ico.ToBitmap(),
