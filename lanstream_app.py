@@ -26,7 +26,7 @@ APP_VERSION = "v1.3.0"
 DEFAULT_HOST = "192.168.110.20"
 
 # 窗口默认尺寸（启动时居中显示）；英文文案更长，窗口相应加宽
-WIN_W, WIN_H = (800, 600) if i18n.is_zh() else (880, 600)
+WIN_W, WIN_H = (800, 620) if i18n.is_zh() else (880, 620)
 # 左右两张卡片共用的行高（保证"开播/停止"与"一键收看"水平对齐）
 ROW_HEAD = 26     # 标题行（标题 + 状态徽章）
 ROW_LAB = 20      # 说明文字行
@@ -339,7 +339,6 @@ class AudioLevel(tk.Canvas):
 
     def set(self, lv):
         self._lv = max(0.0, min(1.0, float(lv)))
-        self._peak = max(self._lv, self._peak * 0.92 - 0.005)
         self._paint()
 
     def _paint(self):
@@ -348,21 +347,20 @@ class AudioLevel(tk.Canvas):
         if w < 24 or h < 6:
             return
         n = self.SEGS
-        gap = 2
+        gap = 3
         seg = max(1.0, (w - gap * (n - 1)) / n)
         lit = int(round(self._lv * n))
-        peak_i = int(round(min(1.0, self._peak) * n))
         for i in range(n):
             x0 = i * (seg + gap)
             x1 = x0 + seg
             if i < n * 0.66:
-                on, off = "#10b981", "#d1fae5"
+                on = "#10b981"
             elif i < n * 0.86:
-                on, off = "#f59e0b", "#fef3c7"
+                on = "#f59e0b"
             else:
-                on, off = "#f43f5e", "#ffe4e6"
-            col = on if i < lit else (off if i < peak_i else "#cbd5e1")
-            self.create_rectangle(x0, 3, x1, h - 3, fill=col, outline="")
+                on = "#f43f5e"
+            self.create_rectangle(x0, 3, x1, h - 3,
+                                  fill=on if i < lit else "#dfe5ec", outline="")
 
 
 class Card(tk.Frame):
@@ -644,7 +642,7 @@ class App:
                   font=(FONT_UI, 10, "bold")).grid(row=0, column=1, sticky="w", padx=(6, 0))
 
         setrow = self._fixed(inner, ROW_MID)
-        setrow.grid(row=2, column=0, sticky="ew", padx=16, pady=(6, 10))
+        setrow.grid(row=2, column=0, sticky="ew", padx=16, pady=(8, 14))
         setrow.columnconfigure(0, weight=1, uniform="s")
         setrow.columnconfigure(1, weight=1, uniform="s")
         setrow.rowconfigure(0, weight=1)
@@ -664,10 +662,10 @@ class App:
 
         # row3 音频标签行：左"音频输入设备"，右侧"麦克风"开关
         alab = self._fixed(inner, ROW_LAB)
-        alab.grid(row=3, column=0, sticky="ew", padx=16)
+        alab.grid(row=3, column=0, sticky="ew", padx=16, pady=(6, 0))
         ttk.Label(alab, text=i18n.t("audio_input"), style="CardDim.TLabel",
                   font=(FONT_UI, 10, "bold")).pack(side="left")
-        self.sw_mic = ToggleSwitch(alab, on=bool(self.state.get("mic")),
+        self.sw_mic = ToggleSwitch(alab, on=bool(self.state.get("mic", True)),
                                    color=GREEN, width=40, height=21,
                                    command=self._on_mic)
         self.sw_mic.pack(side="right", pady=(0, 1))
@@ -677,7 +675,7 @@ class App:
         # row4 音频输入设备下拉（首项=系统声音默认输出）
         self._audio_devs = audio.list_inputs()
         arow = self._fixed(inner, ROW_MID)
-        arow.grid(row=4, column=0, sticky="ew", padx=16, pady=(6, 8))
+        arow.grid(row=4, column=0, sticky="ew", padx=16, pady=(8, 12))
         arow.columnconfigure(0, weight=1)
         arow.rowconfigure(0, weight=1)
         sys_label = i18n.t("audio_system")
@@ -694,13 +692,13 @@ class App:
 
         # row5 横向音频电平指示器
         lvrow = self._fixed(inner, 24)
-        lvrow.grid(row=5, column=0, sticky="ew", padx=16, pady=(0, 10))
+        lvrow.grid(row=5, column=0, sticky="ew", padx=16, pady=(2, 14))
         self.lvl = AudioLevel(lvrow, height=22)
         self.lvl.pack(fill="both", expand=True)
 
         # row6 按钮行（与右侧"一键收看"同一行高）
         btns = tk.Frame(inner, bg=PANEL2)
-        btns.grid(row=6, column=0, sticky="ew", padx=16, pady=(4, 16))
+        btns.grid(row=6, column=0, sticky="ew", padx=16, pady=(2, 16))
         btns.columnconfigure(0, weight=1, uniform="b")
         btns.columnconfigure(1, weight=1, uniform="b")
         self.btn_start = FlatButton(btns, text=i18n.t("start"), icon=self._icons["play"],
@@ -728,7 +726,7 @@ class App:
                   font=(FONT_UI, 10, "bold")).pack(side="left")
 
         mid = self._fixed(inner, ROW_MID)
-        mid.grid(row=2, column=0, sticky="ew", padx=16, pady=(6, 12))
+        mid.grid(row=2, column=0, sticky="ew", padx=16, pady=(8, 14))
         mid.columnconfigure(0, weight=1)
         mid.rowconfigure(0, weight=1)
         self.host_var = tk.StringVar(value=self.state.get("host") or DEFAULT_HOST)
@@ -744,13 +742,13 @@ class App:
                                    font=(FONT_UI, 10, "bold"), command=self.do_scan)
         self.btn_scan.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
 
-        # row3/row4 与左侧画质设置行同高：开机自动收看开关
+        # row3/row4 与左侧音频设置行同高：开机自动收看开关
         lab3 = self._fixed(inner, ROW_LAB)
-        lab3.grid(row=3, column=0, sticky="ew", padx=16)
+        lab3.grid(row=3, column=0, sticky="ew", padx=16, pady=(6, 0))
         ttk.Label(lab3, text=i18n.t("autowatch"), style="CardDim.TLabel",
                   font=(FONT_UI, 10, "bold")).pack(side="left")
         auto = self._fixed(inner, ROW_MID)
-        auto.grid(row=4, column=0, sticky="ew", padx=16, pady=(6, 12))
+        auto.grid(row=4, column=0, sticky="ew", padx=16, pady=(8, 12))
         tk.Label(auto, text=i18n.t("autowatch_tip"),
                  bg=PANEL2, fg=MUT, font=(FONT_UI, 9), anchor="w").pack(
             side="left", fill="both", expand=True)
@@ -760,11 +758,11 @@ class App:
 
         # row5 占位：与左侧音频电平条同高，保证两侧按钮水平对齐
         ph = self._fixed(inner, 24)
-        ph.grid(row=5, column=0, sticky="ew", padx=16, pady=(0, 10))
+        ph.grid(row=5, column=0, sticky="ew", padx=16, pady=(2, 14))
 
         # row6 按钮行
         btns = tk.Frame(inner, bg=PANEL2)
-        btns.grid(row=6, column=0, sticky="ew", padx=16, pady=(4, 16))
+        btns.grid(row=6, column=0, sticky="ew", padx=16, pady=(2, 16))
         btns.columnconfigure(0, weight=1)
         self.btn_watch = FlatButton(btns, text=i18n.t("watch"), icon=self._icons["watch"],
                                     color=ACCENT, height=BTN_H, command=self.do_watch)
@@ -955,25 +953,23 @@ class App:
 
     def _audio_apply(self):
         """按当前选择启动/停止麦克风采集。
-        选「系统声音」= 不采集；选具体设备 = 采集并显示电平，
-        麦克风开关打开时同时回放到默认输出设备，Sunshine 的 loopback 会把它
+        选「系统声音」时用默认麦克风（仅驱动电平指示器，不混入串流）；
+        麦克风开关打开时把采集数据回放到默认输出设备，Sunshine 的 loopback 会把它
         一起串流出去（学生端即可听到老师讲话）。"""
         try:
             m = audio.monitor()
             dev = self.audio_var.get()
-            playback = bool(self.sw_mic.get())
             if dev == i18n.t("audio_system"):
-                # 选「系统声音」：麦克风关闭时完全不采集；打开时用默认麦克风做混入
-                if not playback:
-                    m.stop()
-                    return
-                dev = audio.default_input_name()
-                if not dev:
-                    m.stop()
-                    return
+                dev = audio.default_input_name()      # 系统声音模式：电平用默认麦克风
+            if not dev:
+                m.stop()
+                return
+            playback = bool(self.sw_mic.get())
             if m.is_running() and m.device() == dev and m.playback() == playback:
                 return
-            m.start(dev, playback=playback)
+            ok = m.start(dev, playback=playback)
+            if not ok:
+                _dbg("audio start failed: %s" % m.last_error)
         except Exception:
             pass
 
