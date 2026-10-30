@@ -61,26 +61,50 @@ namespace MoonClass
             return SystemIcons.Application;
         }
 
-        Image MenuIcon(string kind)
+        /// <summary>渲染托盘菜单图标（size 任意，矢量缩放）。
+        /// public static 便于用反射离屏渲染后检查各图标形状。</summary>
+        public static Bitmap Render(string kind, int size)
         {
-            try
+            var bmp = new Bitmap(size, size);
+            using (var g = Graphics.FromImage(bmp))
             {
-                var bmp = new Bitmap(12, 12);
-                using (var g = Graphics.FromImage(bmp))
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                float s = size;
+                using (var b = new SolidBrush(ColorTranslator.FromHtml("#33404e")))
+                using (var pen = new Pen(ColorTranslator.FromHtml("#33404e"), Math.Max(1.2f, s / 9f)))
                 {
-                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                    g.Clear(Color.Transparent);
-                    using (var b = new SolidBrush(ColorTranslator.FromHtml("#33404e")))
-                    using (var pen = new Pen(ColorTranslator.FromHtml("#33404e"), 1.4f))
+                    if (kind == "play")
                     {
-                        if (kind == "play") g.FillPolygon(b, new[] { new Point(1, 1), new Point(11, 6), new Point(1, 11) });
-                        else if (kind == "stop") g.FillRectangle(b, 1, 1, 10, 10);
-                        else if (kind == "watch") g.DrawRectangle(pen, 1, 3, 10, 6);
-                        else { g.DrawRectangle(pen, 1, 1, 10, 10); g.DrawLine(pen, 4, 6, 9, 6); }
+                        g.FillPolygon(b, new[] {
+                            new PointF(s * 0.08f, s * 0.08f),
+                            new PointF(s * 0.92f, s * 0.50f),
+                            new PointF(s * 0.08f, s * 0.92f) });
+                    }
+                    else if (kind == "stop")
+                    {
+                        g.FillRectangle(b, s * 0.12f, s * 0.12f, s * 0.76f, s * 0.76f);
+                    }
+                    else if (kind == "watch")
+                    {
+                        // 显示器：屏幕 + 支柱 + 底座
+                        g.DrawRectangle(pen, s * 0.04f, s * 0.14f, s * 0.92f, s * 0.60f);
+                        g.DrawLine(pen, s * 0.50f, s * 0.74f, s * 0.50f, s * 0.88f);
+                        g.DrawLine(pen, s * 0.28f, s * 0.88f, s * 0.72f, s * 0.88f);
+                    }
+                    else // quit：电源符号（开口圆 + 顶部竖线），与"收看"一眼可分
+                    {
+                        g.DrawLine(pen, s * 0.50f, s * 0.06f, s * 0.50f, s * 0.46f);
+                        g.DrawArc(pen, s * 0.12f, s * 0.22f, s * 0.76f, s * 0.76f, -45f, 270f);
                     }
                 }
-                return bmp;
             }
+            return bmp;
+        }
+
+        Image MenuIcon(string kind)
+        {
+            try { return Render(kind, 12); }
             catch { return null; }
         }
 
