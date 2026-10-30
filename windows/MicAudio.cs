@@ -283,14 +283,15 @@ namespace MoonClass
                         {
                             _oi++;
                             CopyMemory(_outBuf[k], _inBuf[i], n);
-                            oh.dwBufferLength = n;
-                            oh.dwFlags = 0;
+                            oh.dwBufferLength = n;          // 保留 PREPARED，驱动会在 write 时自行清 DONE/INQUEUE
                             Marshal.StructureToPtr(oh, _outHdr[k], false);
                             try { waveOutWrite(_hwo, _outHdr[k], hdrSize); } catch { }
                         }
                     }
 
-                    wh.dwFlags = 0;
+                    // 保留 WHDR_PREPARED：清掉后 waveInAddBuffer 会返回 UNPREPARED，
+                    // 采集在前两个缓冲（约 160ms）后永久停止——电平表不动、麦克风无输出的根因
+                    wh.dwBufferLength = BUF_BYTES;
                     wh.dwBytesRecorded = 0;
                     Marshal.StructureToPtr(wh, _inHdr[i], false);
                     try { waveInAddBuffer(_hwi, _inHdr[i], hdrSize); } catch { }

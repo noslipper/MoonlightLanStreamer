@@ -226,11 +226,17 @@ namespace MoonClass
 
         public static bool PortOpen(int port, int timeoutMs)
         {
+            return PortOpen("127.0.0.1", port, timeoutMs);
+        }
+
+        /// <summary>探测任意主机的 TCP 端口（学生端用来判断教室端是否在开播）。</summary>
+        public static bool PortOpen(string host, int port, int timeoutMs)
+        {
             try
             {
                 using (var c = new System.Net.Sockets.TcpClient())
                 {
-                    var ar = c.BeginConnect("127.0.0.1", port, null, null);
+                    var ar = c.BeginConnect(host, port, null, null);
                     if (!ar.AsyncWaitHandle.WaitOne(timeoutMs)) return false;
                     c.EndConnect(ar);
                     return true;

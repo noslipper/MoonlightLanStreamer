@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
@@ -62,7 +63,7 @@ namespace MoonClass
             StartAudio();
 
             _pollTimer = new System.Windows.Forms.Timer { Interval = 1500 };
-            _pollTimer.Tick += delegate { RefreshStatus(); };
+            _pollTimer.Tick += delegate { RefreshStatus(); FollowTeacher(); };
             _pollTimer.Start();
 
             _meterTimer = new System.Windows.Forms.Timer { Interval = 90 };
@@ -829,11 +830,48 @@ namespace MoonClass
             string host = (_st.Host ?? "").Trim();
             if (host.Length == 0) return;
             Log(I18n.T_("auto_connecting", host));
-            DoWatch();
-            if (!Runtime.PortOpen(Runtime.SunshinePort, 250))
+
+            // 仅当目标是自己（教师机开机自启场景）才顺带自动开播；
+            // 学生机指向教师 IP 时绝不能替教师开播，交给 FollowTeacher 持续跟随
+            bool isLocal = host == "127.0.0.1" || host == "localhost" ||
+                           Runtime.LanIps().Contains(host);
+            if (isLocal && !Runtime.PortOpen(Runtime.SunshinePort, 250))
             {
-                Log(I18n.T_("local_not_started"));
                 DoStart();
+            }
+            FollowTeacher();
+        }
+
+        // ================= 自动跟随教室端 =================
+        bool _followBusy;
+
+        /// <summary>自动收看开关打开时，随教室端开播/停播自动进出收看：
+        /// 教室端 Sunshine 端口开着且本机没在收看 → 自动发起收看；
+        /// 教室端停播（端口关闭）且本机在收看 → 自动结束 Moonlight。
+        /// 每 1.5 秒随状态轮询执行一次。</summary>
+        void FollowTeacher()
+        {
+            if (!_swAuto.Checked || _followBusy) return;
+            string host = (_st.Host ?? "").Trim();
+            if (host.Length == 0) return;
+
+            bool moonRunning;
+            try { moonRunning = Process.GetProcessesByName("Moonlight").Length > 0; }
+            catch { return; }
+            bool teacherUp = Runtime.PortOpen(host, Runtime.SunshinePort, 400);
+
+            if (teacherUp && !moonRunning)
+            {
+                _followBusy = true;                     // DoWatch 是异步的，防止下个 tick 重复触发
+                Log(I18n.T_("auto_join"));
+                DoWatch();
+                new Thread(delegate() { Thread.Sleep(6000); _followBusy = false; })
+                { IsBackground = true }.Start();
+            }
+            else if (!teacherUp && moonRunning)
+            {
+                try { ClientCore.KillAll(); } catch { }
+                Log(I18n.T_("auto_exit"));
             }
         }
 

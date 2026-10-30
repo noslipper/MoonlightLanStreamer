@@ -256,13 +256,17 @@ class MicMonitor:
                         try:
                             ctypes.memmove(self._out_bufs[idx2], data, n)
                             hdr2.dwBufferLength = n
-                            hdr2.dwFlags = 0
+                            # 保留 WHDR_PREPARED：清成 0 会让 waveOutWrite 返回
+                            # UNPREPARED，回放（麦克风混入）从此失效
+                            hdr2.dwFlags = 0x00000002
                             mm.waveOutWrite(self._hwo, ctypes.byref(hdr2),
                                             ctypes.sizeof(hdr2))
                         except Exception:
                             pass
-                # 重新排队采集缓冲
-                hdr.dwFlags = 0
+                # 重新排队采集缓冲：保留 WHDR_PREPARED，只重置长度与已录字节数；
+                # 清 dwFlags 会让 waveInAddBuffer 返回 UNPREPARED，采集在
+                # 前两个缓冲（约 160ms）后永久停止（电平表不动/无麦克风输出的根因）
+                hdr.dwBufferLength = BUF_BYTES
                 hdr.dwBytesRecorded = 0
                 try:
                     mm.waveInAddBuffer(self._hwi, ctypes.byref(hdr), ctypes.sizeof(hdr))
