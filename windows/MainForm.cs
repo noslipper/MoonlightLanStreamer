@@ -81,7 +81,12 @@ namespace MoonClass
                 try
                 {
                     if (_meterTest) { _meter.SetLevel(MeterSweep()); return; }   // 诊断：合成扫幅
-                    if (!_mic.IsRunning) { ApplyAudio(); return; }               // 设备热插拔后自愈
+                    if (!_mic.IsRunning)
+                    {
+                        // 开麦时才做设备热插拔自愈；关麦时保持停止、电平表归零
+                        if (_swMic.Checked) ApplyAudio(); else _meter.SetLevel(0f);
+                        return;
+                    }
                     float lv = _mic.Level();
                     _meter.SetLevel(lv);
 
@@ -312,6 +317,7 @@ namespace MoonClass
             // row4 音频设备
             var row4 = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel2, Margin = new Padding(0, 8, 0, 12) };
             _cbAudio = MakeCombo(null, true);
+            _cbAudio.DropDownWidth = 380;               // 完整设备名较长，下拉框放宽以免再被截断
             _cbAudio.SelectedIndexChanged += delegate { OnAudioChanged(); };
             row4.Controls.Add(_cbAudio);
             row4.Layout += delegate { _cbAudio.SetBounds(0, 0, row4.Width, 30); };
@@ -532,7 +538,7 @@ namespace MoonClass
             _cbBit.Text = _st.BitrateMbps.ToString("0.##", CultureInfo.InvariantCulture);
             _cbFps.Text = _st.Fps.ToString();
 
-            var devs = MicAudio.Inputs();
+            var devs = MicAudio.DisplayInputs();         // 完整设备名（winmm 只给 32 字符会被截断）
             _cbAudio.Items.Clear();
             _cbAudio.Items.Add(I18n.T_("audio_system"));
             foreach (string d in devs) _cbAudio.Items.Add(d);
@@ -606,13 +612,14 @@ namespace MoonClass
         {
             try
             {
+                if (!_swMic.Checked) { _meter.SetLevel(0f); return; }   // 关麦：不采集
                 string dev = SelectedDevice();
                 if (string.IsNullOrEmpty(dev))
                 {
                     Log(I18n.T_("audio_none"));
                     return;
                 }
-                if (!_mic.Start(dev, _swMic.Checked) && _mic.LastError.Length > 0)
+                if (!_mic.Start(dev, true) && _mic.LastError.Length > 0)
                     Log(I18n.T_("audio_err") + _mic.LastError);
             }
             catch (Exception ex) { Log(I18n.T_("audio_err") + ex.Message); }
@@ -622,8 +629,17 @@ namespace MoonClass
         {
             try
             {
+                // 麦克风关闭：停止采集，电平表归零不再跳动（关麦后不该还有输入指示）
+                if (!_swMic.Checked)
+                {
+                    if (_mic.IsRunning) _mic.Stop();
+                    _meter.SetLevel(0f);
+                    _silentTicks = 0;
+                    _silentWarned = false;
+                    return;
+                }
                 string dev = SelectedDevice();
-                if (string.IsNullOrEmpty(dev)) { _mic.Stop(); return; }
+                if (string.IsNullOrEmpty(dev)) { _mic.Stop(); _meter.SetLevel(0f); return; }
                 if (_mic.IsRunning && _mic.Device == dev && _mic.Send == _swMic.Checked) return;
                 // 失败只记一次，恢复成功才清标志——否则 90ms 的自愈定时器会把错误刷满日志
                 bool ok = _mic.Start(dev, _swMic.Checked);
