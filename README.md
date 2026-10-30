@@ -54,6 +54,20 @@
 
 ---
 
+## 两个版本
+
+仓库提供两套等价实现，功能与数据目录完全互通（共用 `%LOCALAPPDATA%\LanStream`，
+包括已释放的运行时与 `lanstream_state.json`），任选其一使用：
+
+| 版本 | 技术栈 | 主程序体积 | 说明 |
+|---|---|---|---|
+| **Python 版**（根目录） | Python 3.12 + tkinter，PyInstaller 单文件 | 93.7 MB（含 72 MB 运行时） | 双击即用，单文件分发 |
+| **C# 版**（`windows/`） | **.NET Framework 4.8 + WinForms**，纯代码自绘 | 几百 KB（运行时另放同目录 zip） | 系统自带运行时，无需安装任何依赖；启动更快 |
+
+C# 版编译方式见 [windows/README.md](windows/README.md)（需要 VS 2019/2022 或 .NET Framework 4.8 Developer Pack）。
+
+---
+
 ## 音频
 
 开播卡片下半部分是音频设置，**画质（码率/帧率）在上、音频在下**：
@@ -195,6 +209,7 @@ make_runtimes.py      # 把本机 Sunshine + Moonlight 打包成 runtimes.zip
 build_exe.ps1         # 一键构建单文件 EXE
 runtime_config/       # 基础配置（apps/凭据哈希）；证书在首次开播时由 Sunshine 自动生成
 docs/screenshot.png   # 界面截图（中文 / 英文：docs/screenshot-en.png）
+windows/              # C# 版（.NET Framework 4.8 + WinForms），见 windows/README.md
 scratch/              # 开发期临时脚本（已 .gitignore，可随时删除）
 ```
 
