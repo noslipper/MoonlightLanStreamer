@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using Microsoft.Win32;
 
@@ -143,6 +144,8 @@ namespace MoonClass
         {
             string m = Runtime.FindMoonlight();
             if (m == null) return false;
+            try { KillAll(); } catch { }              // 先清残留，避免多个实例抢同一个串流
+
             var psi = new ProcessStartInfo();
             psi.FileName = m;
             psi.Arguments =
@@ -154,10 +157,37 @@ namespace MoonClass
                 " --audio-config stereo --no-audio-on-host" +
                 " --no-vsync --no-hdr --video-decoder hardware";
             psi.UseShellExecute = false;
-            psi.CreateNoWindow = false;          // 让串流窗口正常显示
-            psi.WindowStyle = ProcessWindowStyle.Normal;
-            try { return Process.Start(psi) != null; }
+            psi.CreateNoWindow = true;           // 由 Moonlight 自己开串流窗口
+            psi.RedirectStandardOutput = true;   // 抓控制台输出，失败时可查 moonlight.log
+            psi.RedirectStandardError = true;
+            Process p;
+            try { p = Process.Start(psi); }
             catch { return false; }
+            if (p == null) return false;
+            CaptureOutput(p);
+            return true;
+        }
+
+        /// <summary>把 Moonlight 的 stdout/stderr 追加写入 %LOCALAPPDATA%\LanStream\moonlight.log，
+        /// 便于排查"配对成功却进不去桌面"这类问题。</summary>
+        static void CaptureOutput(Process p)
+        {
+            string log = Path.Combine(Runtime.AppDataDir, "moonlight.log");
+            try { Directory.CreateDirectory(Runtime.AppDataDir); } catch { }
+            new Thread(delegate ()
+            {
+                try
+                {
+                    string out1 = p.StandardOutput.ReadToEnd();
+                    string err1 = p.StandardError.ReadToEnd();
+                    var sb = new System.Text.StringBuilder();
+                    sb.AppendLine("==== " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " ====");
+                    if (!string.IsNullOrEmpty(out1)) sb.AppendLine(out1);
+                    if (!string.IsNullOrEmpty(err1)) sb.AppendLine(err1);
+                    File.AppendAllText(log, sb.ToString(), System.Text.Encoding.UTF8);
+                }
+                catch { }
+            }) { IsBackground = true }.Start();
         }
 
         /// <summary>一键收看：未配对则自动配对（固定 PIN），然后串流。</summary>
@@ -173,6 +203,7 @@ namespace MoonClass
             {
                 string last = "";
                 bool ok = false;
+                Thread.Sleep(2000);                  // 给教室端 Sunshine 一点时间完全就绪
                 for (int i = 0; i < 3; i++)
                 {
                     ok = Pair(host, Runtime.FixedPin) && IsPaired(host);

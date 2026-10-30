@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -712,6 +713,16 @@ namespace MoonClass
                 _log.AppendText("[" + DateTime.Now.ToString("HH:mm:ss") + "] " + s + "\n");
                 _log.SelectionStart = _log.TextLength;
                 _log.ScrollToCaret();
+                // LANSTREAM_LOG=1 时同步写文件，便于无界面/多机排查麦克风与自动跟随链路
+                if (_logToFile)
+                {
+                    try
+                    {
+                        File.AppendAllText(Path.Combine(Runtime.AppDataDir, "gui.log"),
+                            DateTime.Now.ToString("HH:mm:ss") + " " + s + "\n", Encoding.UTF8);
+                    }
+                    catch { }
+                }
             }
             catch { }
         }
@@ -818,6 +829,34 @@ namespace MoonClass
                     var r = ClientCore.Watch(host, (int)Math.Round(mb * 1000), fps);
                     bool ok = Convert.ToBoolean(r["ok"]);
                     Log(ok ? I18n.T_("watch_ok", host) : "⚠ " + Convert.ToString(r["msg"]));
+
+                    // 启动成功 ≠ 真的进去了：Moonlight 可能在几秒内自己退出（解码/编码/HEVC 失败等），
+                    // 这里等 6 秒确认进程还在，否则算失败并进入退避重试
+                    if (ok)
+                    {
+                        Thread.Sleep(6000);
+                        bool alive;
+                        try { alive = Process.GetProcessesByName("Moonlight").Length > 0; }
+                        catch { alive = false; }
+                        if (!alive)
+                        {
+                            ok = false;
+                            Log(I18n.T_("watch_dropped"));
+                        }
+                    }
+
+                    if (ok)
+                    {
+                        _joinFails = 0;
+                        _nextJoinAfter = DateTime.MinValue;
+                    }
+                    else
+                    {
+                        _joinFails++;
+                        int wait = Math.Min(30, 8 * _joinFails);
+                        _nextJoinAfter = DateTime.Now.AddSeconds(wait);
+                        Log(I18n.T_("join_retry", wait, _joinFails));
+                    }
                 }
                 catch (Exception ex) { Log("⚠ " + ex.Message); }
                 finally
@@ -852,6 +891,10 @@ namespace MoonClass
         /// 教室端 Sunshine 端口开着且本机没在收看 → 自动发起收看；
         /// 教室端停播（端口关闭）且本机在收看 → 自动结束 Moonlight。
         /// 每 1.5 秒随状态轮询执行一次。</summary>
+        int _downTicks;                 // 连续探活失败次数（含滞回，避免抖动误判停播）
+        int _joinFails;                 // 连续自动进入失败次数（失败退避）
+        DateTime _nextJoinAfter = DateTime.MinValue;
+
         void FollowTeacher()
         {
             if (!_swAuto.Checked || _followBusy) return;
@@ -861,17 +904,21 @@ namespace MoonClass
             bool moonRunning;
             try { moonRunning = Process.GetProcessesByName("Moonlight").Length > 0; }
             catch { return; }
-            bool teacherUp = Runtime.PortOpen(host, Runtime.SunshinePort, 400);
+            // 超时放宽到 1.5s：教室端编码繁忙时 400ms 探活会误判"已停播"，
+            // 导致学生端刚连上就被杀掉、又立刻重连——表现为"进不去桌面、一直重试"
+            bool teacherUp = Runtime.PortOpen(host, Runtime.SunshinePort, 1500);
+            if (teacherUp) _downTicks = 0; else _downTicks++;
 
             if (teacherUp && !moonRunning)
             {
-                _followBusy = true;                     // DoWatch 是异步的，防止下个 tick 重复触发
+                if (DateTime.Now < _nextJoinAfter) return;    // 失败退避窗口内不重试
+                _followBusy = true;                           // DoWatch 是异步的，防止下个 tick 重复触发
                 Log(I18n.T_("auto_join"));
                 DoWatch();
                 new Thread(delegate() { Thread.Sleep(6000); _followBusy = false; })
                 { IsBackground = true }.Start();
             }
-            else if (!teacherUp && moonRunning)
+            else if (!teacherUp && _downTicks >= 2 && moonRunning)   // 连续 2 次确认停播才退出
             {
                 try { ClientCore.KillAll(); } catch { }
                 Log(I18n.T_("auto_exit"));
@@ -934,6 +981,10 @@ namespace MoonClass
             try { _udpMic.Stop(); } catch { }
         }
 
+        static readonly bool _logToFile =
+            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LANSTREAM_LOG"));
+        bool _micRxLogged;
+
         // ================= 学生端麦克风接收 =================
         /// <summary>收看中（Moonlight 运行）才接收教室端的麦克风广播并本地播放；
         /// 退出收看立即停，避免把教室声音一直放出来。每 1.5s 随状态轮询执行。</summary>
@@ -943,8 +994,20 @@ namespace MoonClass
             try { moonRunning = Process.GetProcessesByName("Moonlight").Length > 0; }
             catch { return; }
             string host = (_cbHost.Text ?? "").Trim();
-            if (moonRunning) _udpMic.Start(host);
-            else if (_udpMic.IsRunning) _udpMic.Stop();
+            if (moonRunning)
+            {
+                _udpMic.Start(host);
+                if (_udpMic.Packets > 0 && !_micRxLogged)
+                {
+                    _micRxLogged = true;
+                    Log(I18n.T_("mic_rx_ok", _udpMic.SourceIp.Length > 0 ? _udpMic.SourceIp : host));
+                }
+            }
+            else
+            {
+                if (_udpMic.IsRunning) _udpMic.Stop();
+                _micRxLogged = false;
+            }
         }
     }
 }
