@@ -14,8 +14,22 @@ Sunshine / Moonlight 运行时（`runtimes.zip`，约 72 MB）。
 
 ## 编译
 
-需要 **Visual Studio 2019/2022**（勾选“.NET 桌面开发”工作负载），或
-**.NET Framework 4.8 Developer Pack**（提供 MSBuild / csc）。
+已实测通过的环境：**VS 2022 Build Tools 17.14 + .NET Framework 4.8 目标包**（本机已安装并成功构建）。
+
+任选其一安装即可：
+
+```powershell
+# 方式 A：Build Tools（体积小、无 IDE，推荐给只编译的机器）
+winget install Microsoft.VisualStudio.2022.BuildTools -e --override `
+  "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.ManagedDesktopBuildTools --add Microsoft.Net.Component.4.8.TargetingPack --includeRecommended"
+
+# 方式 B：Visual Studio 2022（勾选“.NET 桌面开发”工作负载）
+# 方式 C：.NET Framework 4.8 Developer Pack（只提供 4.8 引用程序集，
+#         还需系统自带的老版 MSBuild，路径见 build.ps1 的兜底查找）
+```
+
+> 常见坑：VS 安装器在有**同时设置** `HTTPS_PROXY` 和 `https_proxy` 的机器上会直接报 5002
+> （.NET 的字典大小写不敏感，重复键崩溃）。装之前 `unset https_proxy http_proxy` 即可。
 
 ```powershell
 # 在 windows\ 目录下
@@ -38,6 +52,30 @@ icon.ico                       ← 窗口/托盘图标
 
 ---
 
+## 实测结果（本机 v1.3.0 构建产物）
+
+| 项目 | 结果 |
+|---|---|
+| 编译 | 0 错误 0 警告（MSBuild /v:minimal 全量重建） |
+| 产物体积 | 主程序 **108 KB**；运行时另放 `runtimes.zip` 75.8 MB |
+| 启动 | 双击到窗口出现 **1.04 s**（onefile Python 版为 3~8 s） |
+| 开播 | 点击后 **2.4 s** 端口 47989 就绪，`sunshine.exe` 正常运行 |
+| 在线客户端 | 学生端连上后 **6 s 内**状态栏显示「● 正在直播 · 已连接 1 台客户端」，按钮同步为「直播中 · 1 台」 |
+| 停止 | 点击后端口关闭、徽章回「未开播」、日志完整记录 |
+| 单实例 | 二次启动后窗口仍只有 1 个、进程仍 1 个（第二个进程自动退出） |
+| 中英双语 | 系统语言 / `LANSTREAM_LANG=zh\|en` 均正确切换，英文窗口 880px 无截断 |
+| 电平条刷新 | 诊断模式（`LANSTREAM_METER_TEST=1` 合成扫幅）下 12 帧采样有 9 帧不同，亮格像素 238→2380 连续变化 |
+
+### 关于电平条「不动」
+
+先确认是不是没信号：本机麦克风实测 RMS 为 0（Python 侧同样读 0.000），电平条正确地停在 0 格。
+控件本身的刷新已修好：原来用固定差值阈值 0.004 判断是否重绘，底噪附近的变化几乎全被吃掉，
+看起来就像卡住。现在改成**按点亮的格数变化触发重绘**——格数变了才画，既省 CPU，说话时也一定会跳。
+另外采集线程若因设备热插拔退出，会每 90 ms 自动重连一次。
+
+想看电平条本身有没有坏，可用合成信号驱动（不依赖麦克风）：设置环境变量
+`LANSTREAM_METER_TEST=1` 后启动程序即可。
+
 ## 与 Python 版的功能对齐
 
 | 功能 | 实现位置 |
@@ -54,6 +92,9 @@ icon.ico                       ← 窗口/托盘图标
 
 - 界面布局与 Python 版逐行对齐：**视频参数在上、音频在下**，左右卡片共用同一套行高，
   “开播/停止”与“一键收看”严格水平对齐。
+- 左右两卡的每一行都用 `Filled(控件, Margin)` 包成结构完全相同的整行容器（内容一律顶对齐），
+  避免某一侧把 Label 直接塞进表格单元格后垂直居中、比另一侧低 3px 的错位。
+- 开播帧率默认 **60 FPS**（配置里改过则沿用配置）。
 - 麦克风混入的原理与 Python 版相同：winmm 采集麦克风 → 实时回放到默认输出设备 →
   Sunshine 的 loopback 一并串流（等价系统“侦听此设备”，但只在程序内生效）。**建议用耳麦**，否则会啸叫。
 - 界面用纯代码构建（无 XAML），自绘控件全部 GDI+ 抗锯齿绘制，支持 PerMonitorV2 高 DPI。
