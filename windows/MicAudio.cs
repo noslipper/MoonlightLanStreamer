@@ -19,16 +19,8 @@ namespace MoonClass
     {
         public const int UDP_PORT = 48050;
         public const string MAGIC = "LMS1";
-        public const string SUB_MAGIC = "LMSJ";           // 学生端订阅包
 
-        /// <summary>订阅者（学生端）表：学生先主动发订阅包，教室端再单播回麦克风数据，
-        /// 这样学生端不需要入站防火墙放行，跨网段/交换机禁广播时也能收到声音。</summary>
-        class Sub { public IPEndPoint Ep; public DateTime Last; }
-        static readonly object _subLock = new object();
-        static readonly Dictionary<string, Sub> _subs = new Dictionary<string, Sub>();
-        static DateTime _lastPrune = DateTime.Now;
         public static long SentBlocks;
-        public static int SubCount { get { lock (_subLock) { return _subs.Count; } } }
 
         const int WHDR_DONE = 0x00000001;
         const int WHDR_INQUEUE = 0x00000010;
@@ -110,8 +102,7 @@ namespace MoonClass
         volatile bool _run;
         bool _send;
         string _device = "";
-        UdpClient _udp;                 // 发送：广播 + 单播
-        UdpClient _udpRx;               // 接收学生端订阅包（48050，失败也不影响广播）
+        UdpClient _udp;                 // 发送：广播 + 单播（订阅者表由 TeacherBeacon 维护）
         List<IPEndPoint> _eps;
         uint _seq;
         public string LastError = "";
@@ -216,18 +207,8 @@ namespace MoonClass
                     catch { }
                 }
                 catch (Exception ex) { LastError = "udp " + ex.Message; }
-
-                // 订阅监听（best effort：端口被占或被防火墙拦也不影响广播通道）
-                try
-                {
-                    _udpRx = new UdpClient();
-                    _udpRx.ExclusiveAddressUse = false;
-                    _udpRx.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-                    _udpRx.Client.Bind(new IPEndPoint(IPAddress.Any, UDP_PORT));
-                }
-                catch { try { if (_udpRx != null) _udpRx.Close(); } catch { } _udpRx = null; }
             }
-            else { _udp = null; _udpRx = null; }
+            else { _udp = null; }
 
             int hdrSize = Marshal.SizeOf(typeof(WAVEHDR));
             _inHdr = new IntPtr[2];
@@ -273,11 +254,8 @@ namespace MoonClass
             }
             catch { }
             try { if (_udp != null) _udp.Close(); } catch { }
-            try { if (_udpRx != null) _udpRx.Close(); } catch { }
             _udp = null;
-            _udpRx = null;
             _eps = null;
-            lock (_subLock) _subs.Clear();
 
             if (_inBuf != null) foreach (IntPtr p in _inBuf) { try { Marshal.FreeHGlobal(p); } catch { } }
             if (_inHdr != null) foreach (IntPtr p in _inHdr) { try { Marshal.FreeHGlobal(p); } catch { } }
@@ -300,7 +278,7 @@ namespace MoonClass
 
                     int n = wh.dwBytesRecorded > 0 ? wh.dwBytesRecorded : BUF_BYTES;
                     UpdateLevel(_inBuf[i], n);
-                    if (_send && Live && _udp != null) { SendBlock(_inBuf[i], n); PumpSubs(); }
+                    if (_send && Live && _udp != null) SendBlock(_inBuf[i], n);
 
                     // 保留 WHDR_PREPARED：清掉后 waveInAddBuffer 会返回 UNPREPARED，
                     // 采集在前两个缓冲（约 160ms）后永久停止——电平表不动、麦克风无输出的根因
@@ -332,44 +310,12 @@ namespace MoonClass
                         try { _udp.Send(pkt, pkt.Length, ep); } catch { }
                     }
 
-                List<Sub> list;                         // 订阅者单播（跨网段/广播被拦时靠它）
-                lock (_subLock) { list = new List<Sub>(_subs.Values); }
-                foreach (Sub s in list)
+                // 订阅者单播（跨网段/广播被拦时靠它；订阅表由 TeacherBeacon 维护）
+                foreach (IPEndPoint ep in TeacherBeacon.Subs)
                 {
-                    try { _udp.Send(pkt, pkt.Length, s.Ep); } catch { }
+                    try { _udp.Send(pkt, pkt.Length, ep); } catch { }
                 }
                 SentBlocks++;
-            }
-            catch { }
-        }
-
-        /// <summary>处理学生端订阅包 + 清理过期订阅（6 秒无心跳即失效）。</summary>
-        void PumpSubs()
-        {
-            if (_udpRx == null) return;
-            try
-            {
-                while (_udpRx.Available > 0)
-                {
-                    IPEndPoint ep = new IPEndPoint(IPAddress.Any, 0);
-                    byte[] d = _udpRx.Receive(ref ep);
-                    if (d != null && d.Length >= 4 &&
-                        d[0] == (byte)'L' && d[1] == (byte)'M' && d[2] == (byte)'S' && d[3] == (byte)'J')
-                    {
-                        lock (_subLock) { _subs[ep.ToString()] = new Sub { Ep = ep, Last = DateTime.Now }; }
-                    }
-                }
-                if (DateTime.Now - _lastPrune > TimeSpan.FromSeconds(2))
-                {
-                    _lastPrune = DateTime.Now;
-                    lock (_subLock)
-                    {
-                        var dead = new List<string>();
-                        foreach (var kv in _subs)
-                            if (DateTime.Now - kv.Value.Last > TimeSpan.FromSeconds(6)) dead.Add(kv.Key);
-                        foreach (string k in dead) _subs.Remove(k);
-                    }
-                }
             }
             catch { }
         }
@@ -400,6 +346,188 @@ namespace MoonClass
                 }
             }
             catch { }
+        }
+    }
+
+    /// <summary>教室端 ↔ 学生端信令通道（复用 UDP 48050，与麦克风数据同源）。
+    ///
+    /// 教室端：开播后监听学生端订阅包（LMSJ）并登记订阅者；停播时主动向
+    ///   订阅者单播 + 全网广播停播信号（LMSQ，重复 3 遍），学生端收到后立即退出 Moonlight，
+    ///   不再依赖"探活端口是否关闭"这种延迟数秒的被动判断。
+    /// 学生端：收看期间每秒发一次订阅心跳，让教室端知道自己在场（订阅通道与
+    ///   麦克风数据通道复用，跨网段/广播被禁时也能收到停播信号）。
+    ///
+    /// 注意：信令独立于麦克风开关——教师即使关闭了麦克风，停播信号照样能发出去。</summary>
+    public static class TeacherBeacon
+    {
+        public const string SUB_MAGIC = "LMSJ";      // 学生端 → 教室端：订阅 / 心跳
+        public const string STOP_MAGIC = "LMSQ";     // 教室端 → 学生端：已停播，请退出收看
+        const int PORT = MicAudio.UDP_PORT;
+        const int SUB_TTL_SEC = 6;                   // 超过 6 秒没心跳视为已离线
+
+        class Sub { public IPEndPoint Ep; public DateTime Last; }
+        static readonly object _lock = new object();
+        static readonly Dictionary<string, Sub> _subs = new Dictionary<string, Sub>();
+        static UdpClient _srv;
+        static Thread _srvThread;
+        static volatile bool _srvRun;
+        static int _srvRaw;                          // 收到的原始包数（诊断）
+        static string _srvErr = "";                  // 最近一次接收异常（诊断）
+
+        /// <summary>学生端收到教室端停播信号（参数 = 教室端 IP）。在接收线程上触发，
+        /// 订阅者需自行切回 UI 线程。</summary>
+        public static event Action<string> StopReceived;
+
+        /// <summary>教室端订阅监听是否已就绪（诊断用）。</summary>
+        public static bool ServerUp { get { return _srv != null && _srvRun; } }
+        /// <summary>订阅监听收到的原始包数（诊断用）。</summary>
+        public static int ServerRawPackets { get { return _srvRaw; } }
+        /// <summary>订阅监听诊断信息：本地端点 + 最近异常。</summary>
+        public static string ServerDiag
+        {
+            get
+            {
+                string ep = "none";
+                try { if (_srv != null && _srv.Client != null && _srv.Client.LocalEndPoint != null) ep = _srv.Client.LocalEndPoint.ToString(); }
+                catch { }
+                return ep + " err=" + (_srvErr.Length > 0 ? _srvErr : "-");
+            }
+        }
+
+        public static int SubCount { get { lock (_lock) { return _subs.Count; } } }
+
+        /// <summary>当前订阅者快照（麦克风单播与停播信号共用）。</summary>
+        public static List<IPEndPoint> Subs
+        {
+            get
+            {
+                var list = new List<IPEndPoint>();
+                lock (_lock) { foreach (Sub s in _subs.Values) list.Add(s.Ep); }
+                return list;
+            }
+        }
+
+        // ---------------- 教室端 ----------------
+        /// <summary>开播后启动订阅监听（best effort：端口被占也不影响麦克风广播）。</summary>
+        public static void StartServer()
+        {
+            StopServer();
+            try
+            {
+                _srv = new UdpClient();
+                _srv.ExclusiveAddressUse = false;
+                _srv.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                _srv.Client.Bind(new IPEndPoint(IPAddress.Any, PORT));
+                _srv.Client.ReceiveTimeout = 500;
+            }
+            catch { try { if (_srv != null) _srv.Close(); } catch { } _srv = null; return; }
+
+            _srvRun = true;
+            _srvThread = new Thread(ServerLoop);
+            _srvThread.IsBackground = true;
+            _srvThread.Name = "BeaconSrv";
+            _srvThread.Start();
+        }
+
+        public static void StopServer()
+        {
+            _srvRun = false;
+            if (_srvThread != null && _srvThread.IsAlive) { try { _srvThread.Join(600); } catch { } }
+            _srvThread = null;
+            try { if (_srv != null) _srv.Close(); } catch { }
+            _srv = null;
+            lock (_lock) _subs.Clear();
+        }
+
+        static void ServerLoop()
+        {
+            var ep = new IPEndPoint(IPAddress.Any, 0);
+            while (_srvRun && _srv != null)
+            {
+                try
+                {
+                    byte[] d = _srv.Receive(ref ep);
+                    _srvRaw++;
+                    if (d != null && d.Length >= 4 &&
+                        d[0] == (byte)'L' && d[1] == (byte)'M' && d[2] == (byte)'S' && d[3] == (byte)'J')
+                    {
+                        lock (_lock) { _subs[ep.ToString()] = new Sub { Ep = ep, Last = DateTime.Now }; }
+                    }
+                }
+                catch (SocketException se) { _srvErr = "sock:" + se.SocketErrorCode; }   // 接收超时，继续循环
+                catch (Exception e) { _srvErr = e.GetType().Name + ":" + e.Message; break; }
+
+                // 清理离线订阅者
+                lock (_lock)
+                {
+                    var dead = new List<string>();
+                    foreach (var kv in _subs)
+                        if ((DateTime.Now - kv.Value.Last).TotalSeconds > SUB_TTL_SEC) dead.Add(kv.Key);
+                    foreach (string k in dead) _subs.Remove(k);
+                }
+            }
+        }
+
+        /// <summary>停播时广播"已停播"信号。返回本轮发送次数（0 = 没有订阅者也没发成广播）。</summary>
+        public static int AnnounceStop()
+        {
+            List<IPEndPoint> subs = Subs;
+            int sent = 0;
+            try
+            {
+                using (var u = new UdpClient())
+                {
+                    u.EnableBroadcast = true;
+                    byte[] pkt = new byte[12];
+                    Encoding.ASCII.GetBytes(STOP_MAGIC, 0, 4, pkt, 0);
+                    // UDP 不可靠：连发 3 遍，间隔 120ms，丢一遍也不影响
+                    for (int i = 0; i < 3; i++)
+                    {
+                        foreach (IPEndPoint ep in subs)
+                        {
+                            try { u.Send(pkt, pkt.Length, ep); sent++; } catch { }
+                        }
+                        try { u.Send(pkt, pkt.Length, new IPEndPoint(IPAddress.Broadcast, PORT)); sent++; } catch { }
+                        foreach (string s in Runtime.LanIps())
+                        {
+                            IPAddress ip;
+                            if (!IPAddress.TryParse(s, out ip)) continue;
+                            byte[] b = ip.GetAddressBytes();
+                            if (b.Length != 4) continue;
+                            try
+                            {
+                                u.Send(pkt, pkt.Length,
+                                       new IPEndPoint(new IPAddress(new byte[] { b[0], b[1], b[2], 255 }), PORT));
+                                sent++;
+                            }
+                            catch { }
+                        }
+                        if (i < 2) Thread.Sleep(120);
+                    }
+                }
+            }
+            catch { }
+            return sent;
+        }
+
+        // ---------------- 学生端 ----------------
+        /// <summary>学生端供接收侧判断一个包是否为停播信号，是则触发 StopReceived（只触发一次）。</summary>
+        internal static bool HandleStop(byte[] data, IPEndPoint remote, string lockIp, string teacherIp, ref bool fired)
+        {
+            if (data == null || data.Length < 4) return false;
+            if (data[0] != (byte)'L' || data[1] != (byte)'M' ||
+                data[2] != (byte)'S' || data[3] != (byte)'Q') return false;
+            if (fired) return true;                       // 已处理过，吞掉重复包
+            string ip = remote != null ? remote.Address.ToString() : "";
+            // 目标是本机（教师机自收看）时，广播包的源地址是本机 LAN IP 而非 127.0.0.1，不能按 IP 拒绝
+            bool localTarget = lockIp == "127.0.0.1" || lockIp == "localhost" ||
+                               teacherIp == "127.0.0.1" || teacherIp == "localhost";
+            if (!localTarget && lockIp.Length > 0 && lockIp != ip &&
+                !(teacherIp.Length > 0 && teacherIp == ip)) return true;   // 别人的教室端，忽略
+            fired = true;
+            var h = StopReceived;
+            if (h != null) { try { h(ip); } catch { } }
+            return true;
         }
     }
 
@@ -446,6 +574,7 @@ namespace MoonClass
         int _raw;
         int _dropLen, _dropMagic, _dropSeq, _dropIp, _dropBusy;
         string _lastSeenIp = "";
+        bool _stopFired;                            // 停播信号只处理一次
         readonly int _hdrSize = Marshal.SizeOf(typeof(MicAudio.WAVEHDR));
 
         public string SourceIp { get { return _lockIp; } }
@@ -502,6 +631,7 @@ namespace MoonClass
             _lastSub = DateTime.MinValue;
             _startedAt = DateTime.Now;
             _haveSeq = false;
+            _stopFired = false;
             _lockIp = expectIp ?? "";
             _run = true;
             _thread = new Thread(Loop);
@@ -557,7 +687,10 @@ namespace MoonClass
                 if (_teacherEp != null && (DateTime.Now - _lastSub).TotalMilliseconds >= 1000)
                 {
                     _lastSub = DateTime.Now;
-                    try { _udp.Send(new byte[] { (byte)'L', (byte)'M', (byte)'S', (byte)'J' }, 4, _teacherEp); }
+                    try
+                    {
+                        _udp.Send(Encoding.ASCII.GetBytes(TeacherBeacon.SUB_MAGIC), 4, _teacherEp);
+                    }
                     catch { }
                 }
 
@@ -572,6 +705,8 @@ namespace MoonClass
                 }
                 catch { break; }
                 _raw++;
+                // 教室端主动发来的"已停播"信号（优先于音频包处理）
+                if (TeacherBeacon.HandleStop(data, remote, _lockIp, _teacherIp, ref _stopFired)) continue;
                 if (data == null || data.Length < 12 || data.Length > 8 + BUF_BYTES) { _dropLen++; continue; }
                 if (data[0] != (byte)'L' || data[1] != (byte)'M' ||
                     data[2] != (byte)'S' || data[3] != (byte)'1') { _dropMagic++; continue; }   // 魔数校验

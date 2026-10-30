@@ -64,6 +64,13 @@ namespace MoonClass
             LoadStateToUi();
             StartAudio();
 
+            // 教室端主动发来的停播信号：立即退出收看（比"探活端口是否关闭"快得多，
+            // 也不受网络抖动误判影响）
+            TeacherBeacon.StopReceived += delegate (string from)
+            {
+                try { BeginInvoke(new Action<string>(OnTeacherStopped), from); } catch { }
+            };
+
             _pollTimer = new System.Windows.Forms.Timer { Interval = 1500 };
             _pollTimer.Tick += delegate { RefreshStatus(); SyncUdpMic(); FollowTeacher(); };
             _pollTimer.Start();
@@ -656,6 +663,7 @@ namespace MoonClass
             try { st = SunCore.ServerStatus(); }
             catch { return; }
             MicAudio.Live = st.Streaming;               // 只有直播中才对外广播麦克风
+            SyncBeacon(st.Running);                     // 教室端：开播登记订阅者 / 停播主动通知学生端
 
             if (st.Running && st.Clients != _lastClients)
             {
@@ -701,6 +709,51 @@ namespace MoonClass
             string ipText = ips.Count > 0 ? string.Join(I18n.IsZh ? "、" : " / ", ips.ToArray()) : "-";
             _sbInfo.Text = I18n.T_("status_ip", ipText, Runtime.Version);
             _sbInfo.Location = new Point(Math.Max(0, _sbInfo.Parent.Width - _sbInfo.Width - 2), 8);
+        }
+
+        // ================= 教室端停播信令 =================
+        /// <summary>本机作为教室端：Sunshine 起来时登记学生端订阅者，停播时主动广播
+        /// "已停播"信号，让学生端立刻退出 Moonlight（不用等探活超时判断）。</summary>
+        bool _beaconOn;
+
+        void SyncBeacon(bool serverUp)
+        {
+            try
+            {
+                if (serverUp && !_beaconOn)
+                {
+                    _beaconOn = true;
+                    TeacherBeacon.StartServer();
+                }
+                else if (!serverUp && _beaconOn)
+                {
+                    _beaconOn = false;
+                    new Thread(delegate ()
+                    {
+                        try
+                        {
+                            int n = TeacherBeacon.AnnounceStop();
+                            if (n > 0) Log(I18n.T_("beacon_stop_send", n));
+                        }
+                        catch { }
+                        finally { TeacherBeacon.StopServer(); }
+                    }) { IsBackground = true }.Start();
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>学生端收到教室端停播信号：立即结束收看，之后继续监听目标 IP 等下次开播。</summary>
+        void OnTeacherStopped(string from)
+        {
+            bool moonRunning;
+            try { moonRunning = Process.GetProcessesByName("Moonlight").Length > 0; }
+            catch { return; }
+            try { _udpMic.Stop(); } catch { }               // 顺带停掉麦克风接收
+            if (!moonRunning) return;
+            try { ClientCore.KillAll(); } catch { }
+            Log(I18n.T_("beacon_stop_recv", from ?? "-"));
+            RefreshStatus();
         }
 
         // ================= 日志 =================
@@ -786,6 +839,7 @@ namespace MoonClass
             {
                 try { SunCore.StopServer(); Log(I18n.T_("stopped")); }
                 catch (Exception ex) { Log(I18n.T_("stop_err") + ex.Message); }
+                SyncBeacon(false);          // 不等下一轮轮询，立刻通知学生端退出收看
                 RefreshStatus();
             }) { IsBackground = true }.Start();
         }
@@ -957,6 +1011,9 @@ namespace MoonClass
             SaveOnExit();
             try { if (_tray != null) _tray.Dispose(); } catch { }
             try { SunCore.StopServer(); } catch { }
+            // 顺序要紧：必须先停 Sunshine 再发停播信号，否则学生端退出后探活又成功、立刻重连一次
+            try { TeacherBeacon.AnnounceStop(); } catch { }
+            try { TeacherBeacon.StopServer(); } catch { }
             try { ClientCore.KillAll(); } catch { }
             try { Application.Exit(); } catch { }
             Environment.Exit(0);
@@ -979,6 +1036,7 @@ namespace MoonClass
             try { SaveState(); } catch { }
             try { _mic.Stop(); } catch { }
             try { _udpMic.Stop(); } catch { }
+            try { TeacherBeacon.StopServer(); } catch { }   // 不发停播通知（进程退出时 Sunshine 可能还在跑）
         }
 
         static readonly bool _logToFile =
