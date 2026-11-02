@@ -205,13 +205,14 @@ namespace MoonClass
                 {
                     if (p == null) return -1;
                     var std = p.StandardOutput.ReadToEndAsync();
-                    p.StandardError.ReadToEndAsync();
+                    var err = p.StandardError.ReadToEndAsync();     // 必须同时读，否则管道写满会挂住
                     if (!p.WaitForExit(timeoutMs))
                     {
                         try { p.Kill(); } catch { }
                         return -1;
                     }
                     try { stdout = std.Result; } catch { }
+                    try { err.Wait(1000); } catch { }
                     return p.ExitCode;
                 }
             }
