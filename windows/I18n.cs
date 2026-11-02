@@ -27,6 +27,8 @@ namespace MoonClass
             { "audio_none",             new[] { "未检测到音频输入设备（仅串流系统声音）", "No audio input device found (system sound only)" } },
             { "audio_err",              new[] { "⚠ 音频启动失败：", "⚠ Audio start failed: " } },
             { "mic_silent",             new[] { "ℹ 麦克风持续无输入（约 10 秒）：请确认系统未将其静音、选择了正确的输入设备，或直接对着麦克风说话验证电平条", "ℹ No mic input for ~10 s: check the system input device / mute state, or speak into the mic to see the meter move" } },
+            { "mic_rx_ok",             new[] { "已接入教室端麦克风音频（{0}）", "Teacher mic audio connected ({0})" } },
+            { "mic_sent",              new[] { "麦克风音频通道已开启（广播 + 订阅单播）", "Mic audio channel up (broadcast + subscribed unicast)" } },
             // 收看
             { "watch",                  new[] { "一键收看", "Watch" } },
             { "watch_hint",             new[] { "一键收看", "Watch Stream" } },
@@ -70,6 +72,8 @@ namespace MoonClass
             { "auto_connecting",        new[] { "开机自动收看：正在连接 {0} …", "Auto-watch: connecting to {0} …" } },
             { "auto_join",              new[] { "检测到教室端已开播，自动进入收看…", "Teacher started streaming - joining automatically…" } },
             { "auto_exit",              new[] { "教室端已停播，自动退出收看", "Teacher stopped - leaving the stream" } },
+            { "watch_dropped",          new[] { "⚠ Moonlight 启动后很快退出，未能进入对方桌面（详见 moonlight.log）", "⚠ Moonlight exited right after launch (see moonlight.log)" } },
+            { "join_retry",             new[] { "自动收看未成功，{0} 秒后重试（第 {1} 次）", "Auto-join failed, retrying in {0}s (attempt {1})" } },
             { "stopping",               new[] { "正在停止…", "Stopping…" } },
             { "stopped",                new[] { "已停止", "Stopped" } },
             { "stop_err",               new[] { "⚠ 停止异常：", "⚠ Stop failed: " } },

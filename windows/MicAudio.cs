@@ -19,6 +19,16 @@ namespace MoonClass
     {
         public const int UDP_PORT = 48050;
         public const string MAGIC = "LMS1";
+        public const string SUB_MAGIC = "LMSJ";           // 学生端订阅包
+
+        /// <summary>订阅者（学生端）表：学生先主动发订阅包，教室端再单播回麦克风数据，
+        /// 这样学生端不需要入站防火墙放行，跨网段/交换机禁广播时也能收到声音。</summary>
+        class Sub { public IPEndPoint Ep; public DateTime Last; }
+        static readonly object _subLock = new object();
+        static readonly Dictionary<string, Sub> _subs = new Dictionary<string, Sub>();
+        static DateTime _lastPrune = DateTime.Now;
+        public static long SentBlocks;
+        public static int SubCount { get { lock (_subLock) { return _subs.Count; } } }
 
         const int WHDR_DONE = 0x00000001;
         const int WHDR_INQUEUE = 0x00000010;
@@ -100,7 +110,8 @@ namespace MoonClass
         volatile bool _run;
         bool _send;
         string _device = "";
-        UdpClient _udp;
+        UdpClient _udp;                 // 发送：广播 + 单播
+        UdpClient _udpRx;               // 接收学生端订阅包（48050，失败也不影响广播）
         List<IPEndPoint> _eps;
         uint _seq;
         public string LastError = "";
@@ -205,8 +216,18 @@ namespace MoonClass
                     catch { }
                 }
                 catch (Exception ex) { LastError = "udp " + ex.Message; }
+
+                // 订阅监听（best effort：端口被占或被防火墙拦也不影响广播通道）
+                try
+                {
+                    _udpRx = new UdpClient();
+                    _udpRx.ExclusiveAddressUse = false;
+                    _udpRx.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                    _udpRx.Client.Bind(new IPEndPoint(IPAddress.Any, UDP_PORT));
+                }
+                catch { try { if (_udpRx != null) _udpRx.Close(); } catch { } _udpRx = null; }
             }
-            else _udp = null;
+            else { _udp = null; _udpRx = null; }
 
             int hdrSize = Marshal.SizeOf(typeof(WAVEHDR));
             _inHdr = new IntPtr[2];
@@ -252,8 +273,11 @@ namespace MoonClass
             }
             catch { }
             try { if (_udp != null) _udp.Close(); } catch { }
+            try { if (_udpRx != null) _udpRx.Close(); } catch { }
             _udp = null;
+            _udpRx = null;
             _eps = null;
+            lock (_subLock) _subs.Clear();
 
             if (_inBuf != null) foreach (IntPtr p in _inBuf) { try { Marshal.FreeHGlobal(p); } catch { } }
             if (_inHdr != null) foreach (IntPtr p in _inHdr) { try { Marshal.FreeHGlobal(p); } catch { } }
@@ -276,7 +300,7 @@ namespace MoonClass
 
                     int n = wh.dwBytesRecorded > 0 ? wh.dwBytesRecorded : BUF_BYTES;
                     UpdateLevel(_inBuf[i], n);
-                    if (_send && Live && _udp != null) SendBlock(_inBuf[i], n);
+                    if (_send && Live && _udp != null) { SendBlock(_inBuf[i], n); PumpSubs(); }
 
                     // 保留 WHDR_PREPARED：清掉后 waveInAddBuffer 会返回 UNPREPARED，
                     // 采集在前两个缓冲（约 160ms）后永久停止——电平表不动、麦克风无输出的根因
@@ -301,9 +325,50 @@ namespace MoonClass
                 pkt[6] = (byte)(_seq >> 16); pkt[7] = (byte)(_seq >> 24);
                 _seq++;
                 Buffer.BlockCopy(payload, 0, pkt, 8, bytes);
-                foreach (IPEndPoint ep in _eps)
+
+                if (_eps != null)                       // 广播兜底（同网段直连最省事）
+                    foreach (IPEndPoint ep in _eps)
+                    {
+                        try { _udp.Send(pkt, pkt.Length, ep); } catch { }
+                    }
+
+                List<Sub> list;                         // 订阅者单播（跨网段/广播被拦时靠它）
+                lock (_subLock) { list = new List<Sub>(_subs.Values); }
+                foreach (Sub s in list)
                 {
-                    try { _udp.Send(pkt, pkt.Length, ep); } catch { }
+                    try { _udp.Send(pkt, pkt.Length, s.Ep); } catch { }
+                }
+                SentBlocks++;
+            }
+            catch { }
+        }
+
+        /// <summary>处理学生端订阅包 + 清理过期订阅（6 秒无心跳即失效）。</summary>
+        void PumpSubs()
+        {
+            if (_udpRx == null) return;
+            try
+            {
+                while (_udpRx.Available > 0)
+                {
+                    IPEndPoint ep = new IPEndPoint(IPAddress.Any, 0);
+                    byte[] d = _udpRx.Receive(ref ep);
+                    if (d != null && d.Length >= 4 &&
+                        d[0] == (byte)'L' && d[1] == (byte)'M' && d[2] == (byte)'S' && d[3] == (byte)'J')
+                    {
+                        lock (_subLock) { _subs[ep.ToString()] = new Sub { Ep = ep, Last = DateTime.Now }; }
+                    }
+                }
+                if (DateTime.Now - _lastPrune > TimeSpan.FromSeconds(2))
+                {
+                    _lastPrune = DateTime.Now;
+                    lock (_subLock)
+                    {
+                        var dead = new List<string>();
+                        foreach (var kv in _subs)
+                            if (DateTime.Now - kv.Value.Last > TimeSpan.FromSeconds(6)) dead.Add(kv.Key);
+                        foreach (string k in dead) _subs.Remove(k);
+                    }
                 }
             }
             catch { }
@@ -371,7 +436,33 @@ namespace MoonClass
         IntPtr _hwo = IntPtr.Zero;
         IntPtr[] _hdr, _buf;
         string _lockIp = "";
+        string _teacherIp = "";
+        IPEndPoint _teacherEp;
+        DateTime _lastSub;
+        DateTime _startedAt = DateTime.MinValue;
+        uint _lastSeq;
+        bool _haveSeq;
+        int _pkts;
+        int _raw;
+        int _dropLen, _dropMagic, _dropSeq, _dropIp, _dropBusy;
+        string _lastSeenIp = "";
         readonly int _hdrSize = Marshal.SizeOf(typeof(MicAudio.WAVEHDR));
+
+        public string SourceIp { get { return _lockIp; } }
+        public bool IsRunning { get { return _run; } }
+        /// <summary>已收到的音频包数（>0 即证明麦克风链路通了）。</summary>
+        public int Packets { get { return _pkts; } }
+        /// <summary>收到的原始 UDP 包数（不区分内容，用于诊断链路是否通）。</summary>
+        public int RawPackets { get { return _raw; } }
+        /// <summary>诊断：各类丢弃计数。</summary>
+        public string DropInfo
+        {
+            get
+            {
+                return string.Format("len={0} magic={1} dup={2} ip={3}({4}) busy={5}",
+                    _dropLen, _dropMagic, _dropSeq, _dropIp, _lastSeenIp, _dropBusy);
+            }
+        }
 
         const int WAVE_MAPPER_RX = -1;
         [DllImport("winmm.dll")] static extern int waveOutOpen(out IntPtr hwo, int device, ref MicAudio.WAVEFORMATEX fmt, IntPtr callback, IntPtr inst, int flags);
@@ -381,25 +472,36 @@ namespace MoonClass
         [DllImport("winmm.dll")] static extern int waveOutReset(IntPtr hwo);
         [DllImport("winmm.dll")] static extern int waveOutClose(IntPtr hwo);
 
-        public string SourceIp { get { return _lockIp; } }
-        public bool IsRunning { get { return _run; } }
-
         public void Start(string expectIp)
         {
             if (_run && (string.IsNullOrEmpty(expectIp) || expectIp == _lockIp)) return;
             Stop();
+            // 优先绑 48050（能同时收到广播和单播）；被占用则退化为临时端口，靠订阅单播
             try
             {
                 _udp = new UdpClient();
                 _udp.ExclusiveAddressUse = false;
                 _udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                 _udp.Client.Bind(new IPEndPoint(IPAddress.Any, MicAudio.UDP_PORT));
-                _udp.Client.ReceiveTimeout = 500;
-                // 允许同一台机器多个接收端（极端场景）
-                try { _udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Broadcast, true); } catch { }
             }
-            catch { try { if (_udp != null) _udp.Close(); } catch { } _udp = null; return; }
+            catch
+            {
+                try { if (_udp != null) _udp.Close(); } catch { }
+                try { _udp = new UdpClient(0); }
+                catch { _udp = null; return; }
+            }
+            try { _udp.Client.ReceiveTimeout = 200; } catch { }
 
+            _teacherIp = expectIp ?? "";
+            _teacherEp = null;
+            if (_teacherIp.Length > 0)
+            {
+                IPAddress ta;
+                if (IPAddress.TryParse(_teacherIp, out ta)) _teacherEp = new IPEndPoint(ta, MicAudio.UDP_PORT);
+            }
+            _lastSub = DateTime.MinValue;
+            _startedAt = DateTime.Now;
+            _haveSeq = false;
             _lockIp = expectIp ?? "";
             _run = true;
             _thread = new Thread(Loop);
@@ -425,6 +527,8 @@ namespace MoonClass
             _lockIp = "";
         }
 
+        public string LastError = "";
+
         void Loop()
         {
             // 播放缓冲：先准备好 NBUF 个头，有包就填一个空位
@@ -432,7 +536,7 @@ namespace MoonClass
             _buf = new IntPtr[NBUF];
             var fmt = Fmt();
             int rc = waveOutOpen(out _hwo, WAVE_MAPPER_RX, ref fmt, IntPtr.Zero, IntPtr.Zero, 0);
-            if (rc != 0) { _hwo = IntPtr.Zero; return; }
+            if (rc != 0) { _hwo = IntPtr.Zero; LastError = "waveOutOpen rc=" + rc; return; }
             for (int i = 0; i < NBUF; i++)
             {
                 _buf[i] = Marshal.AllocHGlobal(BUF_BYTES);
@@ -448,6 +552,15 @@ namespace MoonClass
             var remote = new IPEndPoint(IPAddress.Any, 0);
             while (_run)
             {
+                // 订阅心跳：每秒向教室端 48050 发一个 4 字节订阅包，
+                // 教室端据此单播回麦克风数据（广播被拦时靠这条链路）
+                if (_teacherEp != null && (DateTime.Now - _lastSub).TotalMilliseconds >= 1000)
+                {
+                    _lastSub = DateTime.Now;
+                    try { _udp.Send(new byte[] { (byte)'L', (byte)'M', (byte)'S', (byte)'J' }, 4, _teacherEp); }
+                    catch { }
+                }
+
                 byte[] data;
                 try
                 {
@@ -458,12 +571,36 @@ namespace MoonClass
                     continue;                            // 超时，回去检查 _run
                 }
                 catch { break; }
-                if (data == null || data.Length < 12 || data.Length > 8 + BUF_BYTES) continue;
+                _raw++;
+                if (data == null || data.Length < 12 || data.Length > 8 + BUF_BYTES) { _dropLen++; continue; }
                 if (data[0] != (byte)'L' || data[1] != (byte)'M' ||
-                    data[2] != (byte)'S' || data[3] != (byte)'1') continue;   // 魔数校验
+                    data[2] != (byte)'S' || data[3] != (byte)'1') { _dropMagic++; continue; }   // 魔数校验
+
+                // 先按来源过滤，再去重：否则广播包（来源可能是教室端另一个 IP）会抢先推进序号，
+                // 把真正要播的单播包判成重复包——麦克风"收得到却没声音"的根因
                 string ip = ((IPEndPoint)remote).Address.ToString();
                 if (_lockIp.Length == 0) _lockIp = ip;
-                else if (_lockIp != ip) continue;
+                else if (_lockIp != ip)
+                {
+                    // 配置的 IP 长时间收不到包（换网段 / 多网卡 / 走的是广播源地址）时改锁定当前来源
+                    if (_pkts == 0 && _startedAt != DateTime.MinValue &&
+                        (DateTime.Now - _startedAt).TotalSeconds > 5)
+                    {
+                        _lockIp = ip;
+                        _haveSeq = false;
+                    }
+                    else { _dropIp++; _lastSeenIp = ip; continue; }
+                }
+
+                // 广播 + 单播会收到同一包两次，按序号去重（避免重音/回声感）
+                uint seq = BitConverter.ToUInt32(data, 4);
+                if (_haveSeq)
+                {
+                    long diff = (long)seq - (long)_lastSeq;
+                    if (diff <= 0 && diff > -100000L) { _dropSeq++; continue; }   // 旧包/重复包（序号回绕除外）
+                }
+                _lastSeq = seq;
+                _haveSeq = true;
 
                 // 找一个空闲播放位
                 int k = -1;
@@ -472,9 +609,10 @@ namespace MoonClass
                     var oh = (MicAudio.WAVEHDR)Marshal.PtrToStructure(_hdr[i], typeof(MicAudio.WAVEHDR));
                     if ((oh.dwFlags & WHDR_INQUEUE) == 0) { k = i; break; }
                 }
-                if (k < 0) continue;                 // 全忙：丢包（比堆延迟好）
+                if (k < 0) { _dropBusy++; continue; }   // 全忙：丢包（比堆延迟好）
 
                 int payload = data.Length - 8;
+                _pkts++;
                 Marshal.Copy(data, 8, _buf[k], payload);
                 var wh2 = (MicAudio.WAVEHDR)Marshal.PtrToStructure(_hdr[k], typeof(MicAudio.WAVEHDR));
                 wh2.dwBufferLength = payload;        // 保留 PREPARED，驱动 write 时自行清标志
