@@ -7,7 +7,7 @@
 #   - Visual Studio Build Tools + ".NET Framework 4.8 SDK / 目标包"
 #   - .NET Framework 4.8 Developer Pack（提供 csc/msbuild）
 param(
-    [string]$Version = "1.3.1",
+    [string]$Version = "1.3.2",
     [string]$Configuration = "Release",
     [string]$MSBuild = "",
     [switch]$SkipSign
