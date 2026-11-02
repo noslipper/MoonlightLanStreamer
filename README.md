@@ -340,6 +340,19 @@ v1.3.0 起改为读取 Sunshine 日志中的 `CLIENT CONNECTED` / `CLIENT DISCON
 本项目以 **GPL-3.0** 发布（见 [LICENSE](LICENSE)）。因其分发/捆绑了 GPL-3.0 的 Sunshine 与
 Moonlight，整体分发须遵循 GPL-3.0；如需商用或闭源分发，请自行评估并遵守上游许可。
 
+## 安全说明（重要）
+
+本程序面向**可信局域网内部**使用，默认做了以下简化取舍，请**不要**把端口暴露到公网：
+
+- 串流不加密（Sunshine `lan_encryption_mode = 0`），同网段可被嗅探
+- 配对使用固定 PIN `0000`，由教师端守护线程自动确认，不做人工核对
+- Sunshine Web 管理页（47990）使用固定凭据 `admin` / `admin1234`
+  （仓库内 `runtime_config/sunshine_state.json` 只存其盐值与 SHA-256 哈希）
+- 键鼠控制默认关闭，学生端只能看画面
+
+如需在不可信网络使用，请自行修改 PIN、Web 密码（同时修改 `windows/SunCore.cs` 中的
+`admin:admin1234`），并开启 Sunshine 的加密选项。
+
 ## 免责声明
 
 本项目仅用于**自有设备的局域网屏幕共享与教学演示**。请勿用于未经授权的远程控制或屏幕采集；
@@ -695,6 +708,20 @@ See [THIRD_PARTY.md](THIRD_PARTY.md) for details.
 Released under **GPL-3.0** (see [LICENSE](LICENSE)). Because it bundles the GPL-3.0 Sunshine and
 Moonlight, the combined distribution must comply with GPL-3.0. For commercial or closed-source
 distribution, evaluate and comply with the upstream licenses yourself.
+
+## Security notes (important)
+
+This app targets **trusted classroom LANs** and makes the following deliberate simplifications — do
+**not** expose these ports to the internet:
+
+- Streaming is unencrypted (Sunshine `lan_encryption_mode = 0`) and can be sniffed on the same segment
+- Pairing uses a fixed PIN `0000` confirmed automatically by the teacher side, with no manual check
+- The Sunshine web UI (47990) uses fixed credentials `admin` / `admin1234`
+  (`runtime_config/sunshine_state.json` only stores the salt and its SHA-256 hash)
+- Keyboard/mouse control is disabled by default; students can only watch
+
+For untrusted networks, change the PIN and web password (also update `admin:admin1234` in
+`windows/SunCore.cs`) and enable Sunshine's encryption options.
 
 ## Disclaimer
 
