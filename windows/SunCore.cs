@@ -357,6 +357,21 @@ namespace MoonClass
             lock (_logLock) { _logOffset = -1; _clientCount = 0; }
         }
 
+        static int _sendFails;
+
+        /// <summary>取走自上次调用以来 sunshine.log 里累计的 UDP 发送失败次数（WSASendMsg 10055）。
+        /// 健康会话为 0；持续刷 10055 说明客户端已死但 Sunshine 会话没释放（僵尸会话），
+        /// 学生端后续重连都会被拒——教室端据此自动重启服务自愈。</summary>
+        public static int TakeSendFails()
+        {
+            lock (_logLock)
+            {
+                int v = _sendFails;
+                _sendFails = 0;
+                return v;
+            }
+        }
+
         /// <summary>在线客户端数：增量读 sunshine.log 的 CLIENT CONNECTED / DISCONNECTED 事件。
         /// （Sunshine 串流视频走 UDP、控制连接是短连接，按 TCP ESTABLISHED 统计会恒为 0）</summary>
         public static int ClientCount()
@@ -385,6 +400,7 @@ namespace MoonClass
                         {
                             if (line.Contains("CLIENT CONNECTED")) _clientCount++;
                             else if (line.Contains("CLIENT DISCONNECTED")) _clientCount = Math.Max(0, _clientCount - 1);
+                            else if (line.Contains("WSASendMsg() failed")) _sendFails++;
                         }
                     }
                 }

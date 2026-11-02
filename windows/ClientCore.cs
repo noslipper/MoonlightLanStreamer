@@ -169,24 +169,45 @@ namespace MoonClass
         }
 
         /// <summary>把 Moonlight 的 stdout/stderr 追加写入 %LOCALAPPDATA%\LanStream\moonlight.log，
-        /// 便于排查"配对成功却进不去桌面"这类问题。</summary>
+        /// 便于排查"配对成功却进不去桌面/闪退"这类问题。
+        /// 注意：stdout 与 stderr 必须各自单独 drain（顺序 ReadToEnd 在其中一路写满管道时
+        /// 会让子进程阻塞，表现为 Moonlight 卡死——历史教训），退出后附上退出码。</summary>
         static void CaptureOutput(Process p)
         {
             string log = Path.Combine(Runtime.AppDataDir, "moonlight.log");
             try { Directory.CreateDirectory(Runtime.AppDataDir); } catch { }
-            new Thread(delegate ()
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("==== " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " ====");
+            object wlock = new object();
+            int pending = 2;
+            var drained = new ManualResetEvent(false);
+
+            Action<System.IO.StreamReader, string> drain = delegate(System.IO.StreamReader r, string tag)
             {
                 try
                 {
-                    string out1 = p.StandardOutput.ReadToEnd();
-                    string err1 = p.StandardError.ReadToEnd();
-                    var sb = new System.Text.StringBuilder();
-                    sb.AppendLine("==== " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " ====");
-                    if (!string.IsNullOrEmpty(out1)) sb.AppendLine(out1);
-                    if (!string.IsNullOrEmpty(err1)) sb.AppendLine(err1);
-                    File.AppendAllText(log, sb.ToString(), System.Text.Encoding.UTF8);
+                    string line;
+                    while ((line = r.ReadLine()) != null)
+                    {
+                        lock (wlock) { sb.Append('[').Append(tag).Append("] ").AppendLine(line); }
+                    }
                 }
                 catch { }
+                if (Interlocked.Decrement(ref pending) == 0) drained.Set();
+            };
+            new Thread(delegate() { drain(p.StandardOutput, "out"); }) { IsBackground = true }.Start();
+            new Thread(delegate() { drain(p.StandardError, "err"); }) { IsBackground = true }.Start();
+
+            new Thread(delegate()
+            {
+                try { while (!p.HasExited) Thread.Sleep(500); } catch { }
+                drained.WaitOne(15000);                 // 输出最多再等 15 秒
+                lock (wlock)
+                {
+                    try { sb.AppendLine("exit code = " + p.ExitCode); } catch { }
+                    try { File.AppendAllText(log, sb.ToString(), System.Text.Encoding.UTF8); } catch { }
+                }
             }) { IsBackground = true }.Start();
         }
 

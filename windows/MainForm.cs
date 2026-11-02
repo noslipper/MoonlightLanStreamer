@@ -681,6 +681,29 @@ namespace MoonClass
             MicAudio.Live = st.Streaming;               // 只有直播中才对外广播麦克风
             SyncBeacon(st.Running);                     // 教室端：开播登记订阅者 / 停播主动通知学生端
 
+            // 发送风暴自愈：sunshine.log 持续刷 WSASendMsg 10055（健康会话为 0，历史日志验证）
+            // 说明客户端已死但 Sunshine 没释放会话（僵尸会话），学生端之后的每次重连都会被拒，
+            // 表现为"配对成功→闪退→无限重连"。自动重启 Sunshine 释放会话，学生端随后自动重进。
+            int sendFails = SunCore.TakeSendFails();
+            if (sendFails >= 10 && st.Running && DateTime.Now >= _nextHealAfter)
+            {
+                _nextHealAfter = DateTime.Now.AddSeconds(90);
+                Log(I18n.T_("heal_stream", sendFails));
+                new Thread(delegate()
+                {
+                    try
+                    {
+                        SunCore.StopServer();
+                        Thread.Sleep(1200);
+                        var r = SunCore.StartServer(Runtime.SunshinePort,
+                            (int)Math.Round(_st.BitrateMbps * 1000), _st.Fps, true, null);
+                        Log(Convert.ToBoolean(r["ok"]) ? I18n.T_("heal_done")
+                            : "⚠ " + Convert.ToString(r["msg"]));
+                    }
+                    catch (Exception ex) { Log("⚠ " + ex.Message); }
+                }) { IsBackground = true }.Start();
+            }
+
             if (st.Running && st.Clients != _lastClients)
             {
                 if (_lastClients >= 0 || st.Clients > 0) Log(I18n.T_("clients_changed", st.Clients));
@@ -964,6 +987,7 @@ namespace MoonClass
         int _downTicks;                 // 连续探活失败次数（含滞回，避免抖动误判停播）
         int _joinFails;                 // 连续自动进入失败次数（失败退避）
         DateTime _nextJoinAfter = DateTime.MinValue;
+        DateTime _nextHealAfter = DateTime.MinValue;   // 发送风暴自愈冷却
 
         void FollowTeacher()
         {
