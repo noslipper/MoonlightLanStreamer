@@ -263,8 +263,9 @@ namespace MoonClass
             row3.Controls.Add(micLab);
             row3.Layout += delegate
             {
-                micLab.Location = new Point(row3.Width - _swMic.Width - 8 - micLab.Width, 4);
-                _swMic.Location = new Point(row3.Width - _swMic.Width, 1);
+                // 开关在前、文字在后（整体仍靠右对齐）；y 微调让两者视觉中心对齐
+                micLab.Location = new Point(row3.Width - micLab.Width, 2);
+                _swMic.Location = new Point(row3.Width - micLab.Width - 8 - _swMic.Width, 1);
             };
             t.Controls.Add(row3, 0, 3);
 
