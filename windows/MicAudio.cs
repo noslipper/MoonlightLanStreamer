@@ -90,6 +90,11 @@ namespace MoonClass
         [DllImport("kernel32.dll", EntryPoint = "RtlMoveMemory")]
         internal static extern void CopyMemory(IntPtr dest, IntPtr src, int count);
 
+        // ---- 注册表属性键（用于取完整设备名；采集仍走 winmm）----
+        const string PKEY_FRIENDLY = "{a45c254e-df1c-4efd-8020-67d146a850e0},14";        // FriendlyName
+        const string PKEY_DESC = "{a45c254e-df1c-4efd-8020-67d146a850e0},2";             // 设备描述
+        const string PKEY_IFACE_FRIENDLY = "{b3f8fa53-0004-438e-9003-51a46e139bfc},6";   // 接口名
+
         static readonly object _lock = new object();
         static float _level;
 
@@ -108,6 +113,9 @@ namespace MoonClass
         public string LastError = "";
 
         // ---------------- 设备枚举 ----------------
+        /// <summary>winmm 设备名（与 waveInOpen 的索引一一对应）。
+        /// 注意：winmm 的 szPname 固定 32 字符，长设备名会被截断，仅用于定位设备；
+        /// 界面显示请用 <see cref="DisplayInputs"/>。</summary>
         public static List<string> Inputs()
         {
             var list = new List<string>();
@@ -128,17 +136,124 @@ namespace MoonClass
             return list;
         }
 
+        /// <summary>界面显示用的设备名：与 Inputs() 同序，但尽量替换成 Core Audio 的完整名称。</summary>
+        public static List<string> DisplayInputs()
+        {
+            var win = Inputs();
+            var full = FullNames();
+            var res = new List<string>(win.Count);
+            foreach (string w in win) res.Add(FullNameOf(w, full));
+            return res;
+        }
+
         public static string DefaultInput()
         {
             var l = Inputs();
             return l.Count > 0 ? l[0] : "";
         }
 
+        /// <summary>设备名 → winmm 索引。兼容两种输入：winmm 原名（可能已截断）或界面显示的全名。</summary>
         static int IndexOf(string name)
         {
+            if (string.IsNullOrEmpty(name)) return 0;
             var l = Inputs();
-            for (int i = 0; i < l.Count; i++) if (l[i] == name) return i;
+            for (int i = 0; i < l.Count; i++)
+                if (string.Equals(l[i], name, StringComparison.OrdinalIgnoreCase)) return i;
+            var full = FullNames();                       // 保存的是显示全名时，映射回索引
+            for (int i = 0; i < l.Count; i++)
+                if (string.Equals(FullNameOf(l[i], full), name, StringComparison.OrdinalIgnoreCase)) return i;
+            for (int i = 0; i < l.Count; i++)             // 兜底：保存名是某个完整名的前缀
+                if (name.StartsWith(l[i], StringComparison.OrdinalIgnoreCase)) return i;
             return 0;
+        }
+
+        // ---- Core Audio：取完整设备名（winmm 只给 32 字符）----
+        static List<string> _fullNames;
+        static readonly object _fullLock = new object();
+
+        static string _coreErr = "-";
+
+        /// <summary>完整设备名枚举诊断（排查设备名仍被截断时用）。</summary>
+        public static string CoreDiag
+        {
+            get { return "fullNames=" + FullNames().Count + " err=" + _coreErr; }
+        }
+        /// <summary>Core Audio 枚举到的完整设备名（诊断用）。</summary>
+        public static List<string> CoreNames()
+        {
+            return new List<string>(FullNames());
+        }
+
+        static List<string> FullNames()
+        {
+            lock (_fullLock)
+            {
+                if (_fullNames == null) _fullNames = EnumCaptureNames();
+                return _fullNames;
+            }
+        }
+
+        /// <summary>把 winmm 的截断名换成 Core Audio 的完整名；匹配不上就原样返回。</summary>
+        static string FullNameOf(string winName, List<string> full)
+        {
+            foreach (string f in full)
+                if (string.Equals(f, winName, StringComparison.OrdinalIgnoreCase)) return f;
+            foreach (string f in full)                     // 截断名通常是完整名的前缀
+                if (f.StartsWith(winName, StringComparison.OrdinalIgnoreCase)) return f;
+            return winName;
+        }
+
+        /// <summary>枚举捕获设备的完整名称。来源优先级：
+        /// ① 注册表里的 FriendlyName（{a45c254e…},14）；
+        /// ② 没有时按 Windows 的规则用「设备描述 (接口名)」拼出来——
+        ///    winmm 的 szPname 正是这个组合名，但被硬截到 31 字符。</summary>
+        const string CAPTURE_KEY = @"SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Capture";
+
+        static List<string> EnumCaptureNames()
+        {
+            var list = new List<string>();
+            // 32 位进程读 HKLM 会被重定向到 Wow6432Node（那里是空的），必须显式指定 64 位视图
+            var views = new[] { Microsoft.Win32.RegistryView.Registry64, Microsoft.Win32.RegistryView.Registry32 };
+            foreach (var view in views)
+            {
+                try
+                {
+                    using (var lm = Microsoft.Win32.RegistryKey.OpenBaseKey(
+                        Microsoft.Win32.RegistryHive.LocalMachine, view))
+                    using (var root = lm.OpenSubKey(CAPTURE_KEY))
+                    {
+                        if (root == null) { _coreErr = view + ":nokey"; continue; }
+                        string[] subs = root.GetSubKeyNames();
+                        _coreErr = view + ":subkeys=" + subs.Length;
+                        foreach (string sub in subs)
+                        {
+                            using (var dev = root.OpenSubKey(sub))
+                            using (var p = dev != null ? dev.OpenSubKey("Properties") : null)
+                            {
+                                if (dev == null || p == null) continue;
+                                int state = 0;
+                                try { state = Convert.ToInt32(dev.GetValue("DeviceState", 0)); } catch { }
+                                if ((state & 1) == 0) continue;          // 只要 ACTIVE 设备
+                                string name = Convert.ToString(p.GetValue(PKEY_FRIENDLY, null));
+                                string desc = Convert.ToString(p.GetValue(PKEY_DESC, null));
+                                string iface = Convert.ToString(p.GetValue(PKEY_IFACE_FRIENDLY, null));
+                                if (string.IsNullOrEmpty(name))
+                                {
+                                    if (!string.IsNullOrEmpty(desc) && !string.IsNullOrEmpty(iface) && desc != iface)
+                                        name = desc + " (" + iface + ")";
+                                    else
+                                        name = desc;
+                                }
+                                if (!string.IsNullOrEmpty(name) && !list.Contains(name)) list.Add(name);
+                                else _coreErr = view + ":noname";
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex) { _coreErr = view + ":" + ex.GetType().Name + ":" + ex.Message; }
+                if (list.Count > 0) break;
+            }
+            return list;
         }
 
         // ---------------- 状态 ----------------
