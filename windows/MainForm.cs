@@ -28,6 +28,11 @@ namespace MoonClass
         readonly MicAudio _mic = new MicAudio();
         int _lastClients = -1;
         readonly bool _meterTest = Environment.GetEnvironmentVariable("LANSTREAM_METER_TEST") == "1";
+        readonly bool _dbg = Environment.GetEnvironmentVariable("LANSTREAM_DEBUG") == "1";
+        bool _audioFailLogged;
+        bool _silentWarned;
+        int _silentTicks;
+        int _dbgLastLog;
         int _sweepI;
         bool _started;
         string _startText = "";
@@ -67,7 +72,22 @@ namespace MoonClass
                 {
                     if (_meterTest) { _meter.SetLevel(MeterSweep()); return; }   // 诊断：合成扫幅
                     if (!_mic.IsRunning) { ApplyAudio(); return; }               // 设备热插拔后自愈
-                    _meter.SetLevel(_mic.Level());
+                    float lv = _mic.Level();
+                    _meter.SetLevel(lv);
+
+                    // 长时间无输入时提示一次，帮用户区分「条坏了」和「麦克风没声音」
+                    if (lv < 0.005f) _silentTicks++; else { _silentTicks = 0; _silentWarned = false; }
+                    if (_silentTicks > 111 && !_silentWarned)     // 约 10 秒
+                    {
+                        _silentWarned = true;
+                        Log(I18n.T_("mic_silent"));
+                    }
+                    if (_dbg && Environment.TickCount - _dbgLastLog > 1000)
+                    {
+                        _dbgLastLog = Environment.TickCount;
+                        Log("[dbg] mic level=" + lv.ToString("0.000") +
+                            " dev=" + _mic.Device + " playback=" + _mic.Playback);
+                    }
                 }
                 catch { }
             };
@@ -183,7 +203,16 @@ namespace MoonClass
                 Margin = new Padding(0),
             };
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            int[] h = { 50, 20, 60, 26, 58, 40, 60 };
+            // 行高说明（left/right 完全一致，总和必须 <= 卡片可用高度 348-16*2=316，
+            // 超出时底部会被裁掉）：
+            //  0 标题行 50（上边距14+徽章24+下边距10）
+            //  1 标签行 20
+            //  2 输入行 58（上边距8+控件30+下边距14）
+            //  3 音频标签/麦克风行 32（上边距6 + 开关21 + 余量5）——小于 28 会把 21px 的开关底部裁掉
+            //  4 下拉/说明行 56（上边距8+控件30+下边距12）
+            //  5 电平条行 40（上边距2+电平条24+下边距14）
+            //  6 按钮行 60（上边距2+按钮42+下边距16）
+            int[] h = { 50, 20, 58, 32, 56, 40, 60 };
             for (int i = 0; i < h.Length; i++) t.RowStyles.Add(new RowStyle(SizeType.Absolute, h[i]));
             return t;
         }
@@ -585,8 +614,17 @@ namespace MoonClass
                 string dev = SelectedDevice();
                 if (string.IsNullOrEmpty(dev)) { _mic.Stop(); return; }
                 if (_mic.IsRunning && _mic.Device == dev && _mic.Playback == _swMic.Checked) return;
-                if (!_mic.Start(dev, _swMic.Checked) && _mic.LastError.Length > 0)
-                    Log(I18n.T_("audio_err") + _mic.LastError);
+                // 失败只记一次，恢复成功才清标志——否则 90ms 的自愈定时器会把错误刷满日志
+                bool ok = _mic.Start(dev, _swMic.Checked);
+                if (!ok)
+                {
+                    if (!_audioFailLogged)
+                    {
+                        _audioFailLogged = true;
+                        Log(I18n.T_("audio_err") + _mic.LastError);
+                    }
+                }
+                else _audioFailLogged = false;
             }
             catch (Exception ex) { Log(I18n.T_("audio_err") + ex.Message); }
         }

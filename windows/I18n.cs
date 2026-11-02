@@ -26,6 +26,7 @@ namespace MoonClass
             { "mic_off_log",            new[] { "麦克风已关闭，仅串流系统声音", "Microphone off - only system sound is streamed" } },
             { "audio_none",             new[] { "未检测到音频输入设备（仅串流系统声音）", "No audio input device found (system sound only)" } },
             { "audio_err",              new[] { "⚠ 音频启动失败：", "⚠ Audio start failed: " } },
+            { "mic_silent",             new[] { "ℹ 麦克风持续无输入（约 10 秒）：请确认系统未将其静音、选择了正确的输入设备，或直接对着麦克风说话验证电平条", "ℹ No mic input for ~10 s: check the system input device / mute state, or speak into the mic to see the meter move" } },
             // 收看
             { "watch",                  new[] { "一键收看", "Watch" } },
             { "watch_hint",             new[] { "一键收看", "Watch Stream" } },
