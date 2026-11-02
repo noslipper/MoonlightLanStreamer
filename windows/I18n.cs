@@ -76,6 +76,8 @@ namespace MoonClass
             { "beacon_stop_send",       new[] { "停播信号已发出（{0} 个目标）", "Stop signal sent ({0} targets)" } },
             { "watch_dropped",          new[] { "⚠ Moonlight 启动后很快退出，未能进入对方桌面（详见 moonlight.log）", "⚠ Moonlight exited right after launch (see moonlight.log)" } },
             { "join_retry",             new[] { "自动收看未成功，{0} 秒后重试（第 {1} 次）", "Auto-join failed, retrying in {0}s (attempt {1})" } },
+            { "heal_stream",            new[] { "⚠ 检测到串流发送异常（1.5 秒内 {0} 次），疑似学生端异常掉线且会话未释放，自动重启服务恢复接续…", "⚠ Streaming send failures detected ({0} in 1.5s) - restarting the server to release the stuck session…" } },
+            { "heal_done",              new[] { "服务已自动重启，等待学生端重新接入", "Server restarted - waiting for clients to reconnect" } },
             { "stopping",               new[] { "正在停止…", "Stopping…" } },
             { "stopped",                new[] { "已停止", "Stopped" } },
             { "stop_err",               new[] { "⚠ 停止异常：", "⚠ Stop failed: " } },
