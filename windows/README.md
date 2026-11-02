@@ -82,6 +82,24 @@ icon.ico                       ← 窗口/托盘图标
 没给数据——检查系统「声音 → 输入」里该设备是否被静音、音量是否为 0。程序也会在持续
 约 10 秒无输入时于日志提示一次。
 
+### 自动跟随教室端（开机自动收看开关的新语义）
+
+「开机自动收看」开关打开后不再只是启动时连一次，而是**持续跟随目标主机**（每 1.5 秒轮询）：
+
+- 目标主机 Sunshine 端口出现（教室端开播）→ 自动发起收看（已配对则直接串流，未配对自动配对）
+- 目标主机端口消失（教室端停播）→ 自动结束本机 Moonlight
+
+开关关闭则一切手动。注意：只对**装了本程序的学生端**生效；用 Moonlight 裸连的学生
+在教室端停播时只会看到"会话已结束"对话框。
+
+### winmm 缓冲区标志位的坑（重要）
+
+波形缓冲完成后**绝不能把 `dwFlags` 清 0** 再重新入队——`WHDR_PREPARED` 被清掉后，
+`waveInAddBuffer` / `waveOutWrite` 会返回 `WAVERR_UNPREPARED`(33) 且从此全部失败，
+采集在**前两个缓冲（约 160 ms）后永久停止**：症状正是"电平表不动 + 麦克风没有声音
+串出去"。正确做法是保留 PREPARED，只重置 `dwBufferLength` / `dwBytesRecorded`，
+让驱动在重新入队时自行清 DONE/INQUEUE。实测修复前后：3 秒完成缓冲 2 个 → 37 个。
+
 ## 与 Python 版的功能对齐
 
 | 功能 | 实现位置 |
@@ -89,6 +107,7 @@ icon.ico                       ← 窗口/托盘图标
 | 一键开播（写配置 → 停服务 → 放行端口 → 启动 Sunshine → PIN 守护） | `SunCore.cs` |
 | 在线客户端计数（解析 sunshine.log 的 CLIENT CONNECTED/DISCONNECTED） | `SunCore.ClientCount()` |
 | 一键收看（自动配对 → 串流） | `ClientCore.cs` |
+| 自动跟随教室端：开播自动进入收看、停播自动退出（受「开机自动收看」开关控制） | `MainForm.FollowTeacher()` |
 | 音频：系统声音串流 + 麦克风混入 + 横向电平条 | `MicAudio.cs` |
 | 中英双语（跟随系统语言，`LANSTREAM_LANG` 可强制） | `I18n.cs` |
 | 扁平化自绘控件（按钮/开关/徽章/电平条） | `Ui.cs` |

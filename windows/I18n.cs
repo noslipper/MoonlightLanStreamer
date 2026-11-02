@@ -68,6 +68,8 @@ namespace MoonClass
             { "auto_on",                new[] { "开机自动收看已开启（已保存到配置文件）", "Auto-watch enabled (saved to config)" } },
             { "auto_off",               new[] { "开机自动收看已关闭（已保存到配置文件）", "Auto-watch disabled (saved to config)" } },
             { "auto_connecting",        new[] { "开机自动收看：正在连接 {0} …", "Auto-watch: connecting to {0} …" } },
+            { "auto_join",              new[] { "检测到教室端已开播，自动进入收看…", "Teacher started streaming - joining automatically…" } },
+            { "auto_exit",              new[] { "教室端已停播，自动退出收看", "Teacher stopped - leaving the stream" } },
             { "stopping",               new[] { "正在停止…", "Stopping…" } },
             { "stopped",                new[] { "已停止", "Stopped" } },
             { "stop_err",               new[] { "⚠ 停止异常：", "⚠ Stop failed: " } },
