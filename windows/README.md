@@ -53,7 +53,7 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.4 -SkipSign
 
 ---
 
-## 实测结果（本机 v1.3.0 构建产物）
+## 实测结果（本机 v1.3.0 构建产物；1.3.x 各版本号一致）
 
 | 项目 | 结果 |
 |---|---|

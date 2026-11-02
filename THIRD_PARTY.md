@@ -45,6 +45,18 @@
 - Tcl/Tk：https://www.tcl.tk/ （BSD-style License）
 - 用途：运行时与图形界面
 
+## 7. C# 版额外依赖（`windows/`）
+
+C# 版不包含任何第三方二进制，仅调用操作系统自带组件：
+
+| 组件 | 用途 | 说明 |
+|---|---|---|
+| .NET Framework 4.8 | 运行框架 | Windows 10 1903+ / Windows 11 自带，本项目不再分发 |
+| Windows API（winmm / iphlpapi / advapi32 / user32 等） | 音频采集、网卡枚举、注册表、窗口与托盘 | 系统自带 |
+| Sunshine / Moonlight | 与 Python 版相同 | 以 `runtimes.zip` 形式由使用者在本地生成后内嵌 |
+
+Moonlight 自身包含 Qt、SDL、FFmpeg 等组件，其许可随上游 Moonlight 一并适用。
+
 ---
 
 ## 关于整体分发许可
