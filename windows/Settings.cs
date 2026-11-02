@@ -9,7 +9,7 @@ namespace MoonClass
     /// 两个版本可以互相读到对方的设置。</summary>
     public class Settings
     {
-        public string Host = "192.168.110.20";
+        public string Host = "";                // 空 = 使用界面里的示例地址占位
         public List<string> Hosts = new List<string>();
         public double BitrateMbps = 10.0;
         public int Fps = 60;

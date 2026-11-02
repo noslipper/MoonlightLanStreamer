@@ -33,17 +33,17 @@ winget install Microsoft.VisualStudio.2022.BuildTools -e --override `
 
 ```powershell
 # 在 windows\ 目录下
-powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.0
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.4
+# 跳过代码签名（没有证书或不想签时）
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.4 -SkipSign
 ```
 
 也可以直接用 VS 打开 `MoonClassLanStream.csproj`（经典项目格式，无需转换）后 F5 / 生成。
 
-产物目录：`dist\cs-v1.3.0\`
+产物目录：`dist\`（仓库根目录下）
 
 ```
-月光极速电子教室-v1.3.0.exe    ← 主程序（~72 MB，运行时已内嵌，单文件分发）
-runtime_config\                ← apps.json + Sunshine Web 凭据模板
-icon.ico                       ← 窗口/托盘图标
+月光极速电子教室-v1.3.4.exe    ← 主程序（~73 MB，运行时已内嵌，单文件分发）
 ```
 
 **单文件分发**：只要 `windows\Resources\runtimes.zip` 存在，构建脚本就会把它作为嵌入资源

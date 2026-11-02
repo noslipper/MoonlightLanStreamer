@@ -575,8 +575,11 @@ namespace MoonClass
             if (!string.IsNullOrEmpty(_st.Host) && !vals.Contains(_st.Host)) vals.Insert(0, _st.Host);
             _cbHost.Items.Clear();
             foreach (string v in vals) _cbHost.Items.Add(v);
-            _cbHost.Text = string.IsNullOrEmpty(_st.Host) ? "192.168.110.20" : _st.Host;
+            _cbHost.Text = string.IsNullOrEmpty(_st.Host) ? HostPlaceholder : _st.Host;
         }
+
+        /// <summary>输入框为空的占位示例（仅为格式提示，首次点「一键检测」会被真实 IP 覆盖）。</summary>
+        const string HostPlaceholder = "192.168.1.100";
 
         void SaveState()
         {
