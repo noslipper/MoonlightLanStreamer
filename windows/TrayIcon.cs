@@ -52,13 +52,7 @@ namespace MoonClass
 
         static Icon LoadIcon()
         {
-            try
-            {
-                string p = Path.Combine(Runtime.ExeDir, "icon.ico");
-                if (File.Exists(p)) return new Icon(p, 32, 32);
-            }
-            catch { }
-            return SystemIcons.Application;
+            return Runtime.LoadAppIcon(32, 32);      // 内嵌资源，托盘不再依赖外部文件
         }
 
         /// <summary>渲染托盘菜单图标（size 任意，矢量缩放）。

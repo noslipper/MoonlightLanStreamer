@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
@@ -24,6 +25,40 @@ namespace MoonClass
         public static string ExeDir
         {
             get { return Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location); }
+        }
+
+        // ---------------- 应用图标（内嵌，单文件分发不依赖外部文件） ----------------
+        static Icon _appIcon;
+
+        /// <summary>从 exe 内嵌资源加载应用图标（含全部尺寸，任务栏/标题栏共用）。
+        /// 优先内嵌资源，找不到再试 exe 同目录的 icon.ico，最后用系统默认。</summary>
+        public static Icon LoadAppIcon(int width, int height)
+        {
+            try
+            {
+                if (_appIcon == null)
+                {
+                    Assembly asm = Assembly.GetExecutingAssembly();
+                    using (Stream s = asm.GetManifestResourceStream("MoonClass.Resources.icon.ico"))
+                    {
+                        if (s != null) _appIcon = new Icon(s);
+                    }
+                    if (_appIcon == null)
+                    {
+                        string p = Path.Combine(ExeDir, "icon.ico");
+                        if (File.Exists(p)) _appIcon = new Icon(p);
+                    }
+                    if (_appIcon == null) return SystemIcons.Application;
+                }
+                return new Icon(_appIcon, width, height);
+            }
+            catch { return SystemIcons.Application; }
+        }
+
+        /// <summary>取最合适的大图标（用于窗体 Icon，系统自动选任务栏/标题栏尺寸）。</summary>
+        public static Icon LoadAppIcon()
+        {
+            return LoadAppIcon(64, 64);
         }
 
         public static string AppDataDir

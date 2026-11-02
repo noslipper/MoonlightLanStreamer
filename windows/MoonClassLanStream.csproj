@@ -65,6 +65,7 @@
     <Content Include="Resources\icon.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <EmbeddedResource Include="Resources\icon.ico" />
     <EmbeddedResource Include="Resources\runtime_config\apps.json" />
     <EmbeddedResource Include="Resources\runtime_config\sunshine_state.json" />
     <EmbeddedResource Include="Resources\runtimes.zip" Condition="Exists('Resources\runtimes.zip')" />
