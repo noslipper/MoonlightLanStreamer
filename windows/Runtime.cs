@@ -89,30 +89,62 @@ namespace MoonClass
             try { Directory.CreateDirectory(ConfigDir); } catch { }
         }
 
+        /// <summary>运行时是否已完整释放。除了两个 exe，还要检查 VC++ 运行库：
+        /// Moonlight（Qt/MSVC 编译）依赖 VCRUNTIME140/MSVCP140，这些不是 Windows 自带组件，
+        /// 干净机器上缺了会直接在 loader 阶段失败（弹框卡住、连日志都不产生）。</summary>
+        static bool RuntimesReady()
+        {
+            try
+            {
+                if (!File.Exists(SunshineExe) || !File.Exists(MoonlightExe)) return false;
+                return File.Exists(Path.Combine(AppDataDir, Path.Combine("client", "vcruntime140.dll")))
+                    && File.Exists(Path.Combine(AppDataDir, Path.Combine("client", "msvcp140.dll")));
+            }
+            catch { return false; }
+        }
+
         /// <summary>首次运行释放内置的 Sunshine + Moonlight 运行时（约 94MB）。
         /// 优先用 exe 同目录的 runtimes.zip，其次用嵌入资源。</summary>
         public static void EnsureRuntimes()
         {
             try
             {
-                if (File.Exists(SunshineExe) && File.Exists(MoonlightExe)) return;
+                if (RuntimesReady()) return;
+                var sw = Stopwatch.StartNew();
+                LogStartup("释放运行时开始（已就绪=false）");
 
                 string zip = Path.Combine(ExeDir, "runtimes.zip");
                 if (File.Exists(zip))
                 {
                     ExtractZip(zip, AppDataDir);
-                    return;
                 }
-                var asm = Assembly.GetExecutingAssembly();
-                using (Stream s = asm.GetManifestResourceStream("MoonClass.Resources.runtimes.zip"))
+                else
                 {
-                    if (s == null) return;
-                    string tmp = Path.Combine(Path.GetTempPath(), "mcls_runtimes.zip");
-                    using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write))
-                        s.CopyTo(fs);
-                    ExtractZip(tmp, AppDataDir);
-                    try { File.Delete(tmp); } catch { }
+                    var asm = Assembly.GetExecutingAssembly();
+                    using (Stream s = asm.GetManifestResourceStream("MoonClass.Resources.runtimes.zip"))
+                    {
+                        if (s == null) { LogStartup("嵌入运行时资源缺失"); return; }
+                        string tmp = Path.Combine(Path.GetTempPath(), "mcls_runtimes.zip");
+                        using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write))
+                            s.CopyTo(fs);
+                        ExtractZip(tmp, AppDataDir);
+                        try { File.Delete(tmp); } catch { }
+                    }
                 }
+                LogStartup("释放运行时完成，" + sw.ElapsedMilliseconds + " ms，就绪=" + RuntimesReady());
+            }
+            catch (Exception ex) { LogStartup("释放运行时异常: " + ex.Message); }
+        }
+
+        /// <summary>启动诊断日志（%LOCALAPPDATA%\LanStream\startup.log）。</summary>
+        public static void LogStartup(string msg)
+        {
+            try
+            {
+                Directory.CreateDirectory(AppDataDir);
+                File.AppendAllText(Path.Combine(AppDataDir, "startup.log"),
+                    "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + msg + Environment.NewLine,
+                    System.Text.Encoding.UTF8);
             }
             catch { }
         }

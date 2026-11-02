@@ -277,6 +277,8 @@ namespace MoonClass
             var row2 = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel2, Margin = new Padding(0, 8, 0, 14) };
             _cbBit = MakeCombo(BitChoices, false);
             _cbFps = MakeCombo(FpsChoices, false);
+            _cbBit.Leave += delegate { SaveState(); };      // 改完即存，等开播/退出才存容易丢
+            _cbFps.Leave += delegate { SaveState(); };
             _cbBit.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
             _cbFps.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
             row2.Controls.Add(_cbBit);
@@ -412,6 +414,7 @@ namespace MoonClass
             var row2 = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel2, Margin = new Padding(0, 8, 0, 14) };
             _cbHost = MakeCombo(null, false);
             _cbHost.Font = Theme.Mono(11f);
+            _cbHost.Leave += delegate { SaveState(); };     // 目标 IP 改完即存（下次开界面自动回填）
             _btnScan = new FlatButton { Text = I18n.T_("scan"), Fill = Theme.Cyan, Kind = "scan", Width = 86 };
             _btnScan.Click += delegate { DoScan(); };
             row2.Controls.Add(_cbHost);

@@ -143,7 +143,13 @@ namespace MoonClass
         public static bool Stream(string host, string app, int bitrateKbps, int fps, bool hevc, bool fullscreen)
         {
             string m = Runtime.FindMoonlight();
-            if (m == null) return false;
+            if (m == null)
+            {
+                AppendLine("✗ 找不到 Moonlight.exe（" + Runtime.MoonlightExe +
+                           " 不存在，且系统目录也没有安装）——运行时可能没释放完整");
+                return false;
+            }
+            AppendLine("→ 启动: " + m + "  (exists=" + File.Exists(m) + ")");
             try { KillAll(); } catch { }              // 先清残留，避免多个实例抢同一个串流
 
             var psi = new ProcessStartInfo();
@@ -160,38 +166,43 @@ namespace MoonClass
             psi.CreateNoWindow = true;           // 由 Moonlight 自己开串流窗口
             psi.RedirectStandardOutput = true;   // 抓控制台输出，失败时可查 moonlight.log
             psi.RedirectStandardError = true;
+            AppendLine("  参数: " + psi.Arguments);
             Process p;
             try { p = Process.Start(psi); }
-            catch { return false; }
-            if (p == null) return false;
+            catch (Exception ex)
+            {
+                AppendLine("✗ Process.Start 失败: " + ex.GetType().Name + ": " + ex.Message);
+                return false;
+            }
+            if (p == null) { AppendLine("✗ Process.Start 返回 null"); return false; }
             CaptureOutput(p);
             return true;
         }
 
-        /// <summary>把 Moonlight 的 stdout/stderr 追加写入 %LOCALAPPDATA%\LanStream\moonlight.log，
-        /// 便于排查"配对成功却进不去桌面/闪退"这类问题。
-        /// 注意：stdout 与 stderr 必须各自单独 drain（顺序 ReadToEnd 在其中一路写满管道时
-        /// 会让子进程阻塞，表现为 Moonlight 卡死——历史教训），退出后附上退出码。</summary>
+        /// <summary>把 Moonlight 的 stdout/stderr 追加写入 %LOCALAPPDATA%\LanStream\moonlight.log。
+        /// 两条铁律：
+        /// 1) stdout 与 stderr 必须各自单独 drain（顺序 ReadToEnd 在其中一路写满管道时会让子进程阻塞）；
+        /// 2) 日志必须**实时落盘**——进程若卡在 loader 弹框（缺 VCRUNTIME 等）永不退出，
+        ///    只在退出后写文件就等于"没有日志"，这正是学生端"启动不起来也没日志"的原因。</summary>
         static void CaptureOutput(Process p)
         {
-            string log = Path.Combine(Runtime.AppDataDir, "moonlight.log");
-            try { Directory.CreateDirectory(Runtime.AppDataDir); } catch { }
-
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("==== " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " ====");
             object wlock = new object();
+            Action<string> write = delegate(string line)
+            {
+                lock (wlock) { AppendLine(line); }
+            };
+
+            write("==== " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
+                  "  启动 Moonlight（PID " + SafePid(p) + "） ====");
+
             int pending = 2;
             var drained = new ManualResetEvent(false);
-
             Action<System.IO.StreamReader, string> drain = delegate(System.IO.StreamReader r, string tag)
             {
                 try
                 {
                     string line;
-                    while ((line = r.ReadLine()) != null)
-                    {
-                        lock (wlock) { sb.Append('[').Append(tag).Append("] ").AppendLine(line); }
-                    }
+                    while ((line = r.ReadLine()) != null) write("[" + tag + "] " + line);
                 }
                 catch { }
                 if (Interlocked.Decrement(ref pending) == 0) drained.Set();
@@ -201,14 +212,36 @@ namespace MoonClass
 
             new Thread(delegate()
             {
-                try { while (!p.HasExited) Thread.Sleep(500); } catch { }
-                drained.WaitOne(15000);                 // 输出最多再等 15 秒
-                lock (wlock)
-                {
-                    try { sb.AppendLine("exit code = " + p.ExitCode); } catch { }
-                    try { File.AppendAllText(log, sb.ToString(), System.Text.Encoding.UTF8); } catch { }
-                }
+                try { while (!p.HasExited) Thread.Sleep(400); } catch { }
+                drained.WaitOne(8000);                 // 输出最多再等 8 秒
+                int code = -1;
+                try { code = p.ExitCode; } catch { }
+                write("exit code = " + code +
+                      (code == -1073741515 || code == -1073741511
+                          ? "（缺少 VC++ 运行库 / 依赖 DLL，静态链接问题）" : ""));
             }) { IsBackground = true }.Start();
+        }
+
+        static int SafePid(Process p)
+        {
+            try { return p.Id; } catch { return -1; }
+        }
+
+        static readonly object _mlLogLock = new object();
+
+        /// <summary>往 moonlight.log 追加一行（实时，供排查"启动不起来"）。</summary>
+        public static void AppendLine(string line)
+        {
+            try
+            {
+                lock (_mlLogLock)
+                {
+                    Directory.CreateDirectory(Runtime.AppDataDir);
+                    File.AppendAllText(Path.Combine(Runtime.AppDataDir, "moonlight.log"),
+                                       line + Environment.NewLine, System.Text.Encoding.UTF8);
+                }
+            }
+            catch { }
         }
 
         /// <summary>一键收看：未配对则自动配对（固定 PIN），然后串流。</summary>
