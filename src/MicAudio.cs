@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
-namespace MoonClass
+namespace MoonlightLanStreamer
 {
     /// <summary>音频：枚举录音设备 + 采集电平 + 麦克风局域网广播。
     ///

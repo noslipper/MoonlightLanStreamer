@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
-namespace MoonClass
+namespace MoonlightLanStreamer
 {
     /// <summary>扁平化主题色（与 Python 版一致）。</summary>
     public static class Theme

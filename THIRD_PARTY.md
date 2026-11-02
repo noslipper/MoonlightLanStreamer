@@ -1,7 +1,7 @@
 # 第三方组件与许可声明
 
-月光极速电子教室（MoonClass LanStream）在运行时**内嵌并调用**以下开源组件。
-仓库源码本身不重复分发它们的二进制，构建时由 `make_runtimes.py` 从本机安装目录打包。
+MoonlightLanStreamer（Windows 桌面产品名：月光极速电子教室）在运行时**内嵌并调用**以下开源组件。
+仓库源码本身不重复分发它们的二进制，构建时由 `src/make_runtimes.ps1` 从本机安装目录打包。
 
 ---
 
@@ -20,42 +20,29 @@
 - 许可：**GNU GPL v3.0**
 - 说明：本项目通过 `Moonlight.exe pair / stream / list` 子命令与其交互，未修改其源码。
 
-## 3. Material Design Icons（界面图标）
+## 3. .NET Framework 4.8
 
-- 项目：https://materialdesignicons.com/ （素材经 Iconify API 获取 SVG）
-- 用途：按钮与托盘菜单图标；构建期用 `resvg` 栅格化为 96px alpha 遮罩，
-  结果以 base64 形式内嵌在 `icon_data.py`，运行时仅做缩放与染色
-- 许可：**Apache License 2.0**
+- 项目：https://dotnet.microsoft.com/download/dotnet-framework
+- 用途：运行框架（WinForms / GDI+ / System.Net / System.IO.Compression）
+- 许可：随 Windows 分发，本项目不分发其运行时
 
-## 4. Pillow（图像处理）
+## 4. Windows API（系统自带）
 
-- 项目：https://python-pillow.org/
-- 用途：图标缩放/染色、圆角与进度条等界面绘制
-- 许可：**HPND License**（Pillow Software License）
+| 组件 | 用途 |
+|---|---|
+| winmm | 麦克风采集（waveIn）与播放（waveOut） |
+| iphlpapi / ws2_32 | 网卡枚举、UDP 收发（`LMS1` / `LMSJ` / `LMSQ`） |
+| advapi32 | 注册表（音频设备名、Moonlight 主机项）、服务控制 |
+| user32 / shell32 / kernel32 | 窗口、系统托盘、进程与单实例互斥体 |
 
-## 5. pywin32（Windows API 封装）
+## 5. 图标
 
-- 项目：https://github.com/mhammond/pywin32
-- 用途：系统托盘（Shell_NotifyIcon）、窗口置前、菜单位图
-- 许可：**PSF-2.0**
+- 应用图标 `src/Resources/icon.ico` 为本项目自制素材，随仓库以 GPL-3.0 发布。
 
-## 6. Python / Tcl-Tk
+## 6. Moonlight 内含的第三方库
 
-- Python：https://www.python.org/ （PSF License）
-- Tcl/Tk：https://www.tcl.tk/ （BSD-style License）
-- 用途：运行时与图形界面
-
-## 7. C# 版额外依赖（`windows/`）
-
-C# 版不包含任何第三方二进制，仅调用操作系统自带组件：
-
-| 组件 | 用途 | 说明 |
-|---|---|---|
-| .NET Framework 4.8 | 运行框架 | Windows 10 1903+ / Windows 11 自带，本项目不再分发 |
-| Windows API（winmm / iphlpapi / advapi32 / user32 等） | 音频采集、网卡枚举、注册表、窗口与托盘 | 系统自带 |
-| Sunshine / Moonlight | 与 Python 版相同 | 以 `runtimes.zip` 形式由使用者在本地生成后内嵌 |
-
-Moonlight 自身包含 Qt、SDL、FFmpeg 等组件，其许可随上游 Moonlight 一并适用。
+Moonlight 自身包含 Qt、SDL、FFmpeg 等组件，Sunshine 包含 Boost、FFmpeg、MiniUPnP 等组件，
+其许可以上游各自声明为准，随上游一并适用。
 
 ---
 
@@ -71,7 +58,7 @@ Moonlight 自身包含 Qt、SDL、FFmpeg 等组件，其许可随上游 Moonligh
 
 ## 商标声明
 
-Sunshine、Moonlight、NVIDIA、AMD、Intel 等名称与商标归各自所有者所有。
+Sunshine、Moonlight、NVIDIA、AMD、Intel、Microsoft 等名称与商标归各自所有者所有。
 本项目为第三方作品，与上述组织无隶属或背书关系。
 
 ---
@@ -79,9 +66,9 @@ Sunshine、Moonlight、NVIDIA、AMD、Intel 等名称与商标归各自所有者
 
 # Third-Party Components and Licenses
 
-MoonClass LanStream **embeds and invokes** the following open-source components at runtime.
+MoonlightLanStreamer **embeds and invokes** the following open-source components at runtime.
 The repository source does not redistribute their binaries; the build packs them from your local
-installation directory via `make_runtimes.py`.
+installation directory via `src/make_runtimes.ps1`.
 
 ## 1. Sunshine (streaming server)
 
@@ -89,7 +76,7 @@ installation directory via `make_runtimes.py`.
 - Use: bundled as the server runtime (`sunshine/sunshine.exe`); launched by this app with a generated config
 - License: **GNU GPL v3.0**
 - Notes: invoked through command-line arguments and local HTTP/HTTPS endpoints (47984 / 47989 / 47990);
-  its source is not modified. Window titles, logs and network identifiers come from the upstream implementation.
+  its source is not modified.
 
 ## 2. Moonlight (streaming client)
 
@@ -98,30 +85,25 @@ installation directory via `make_runtimes.py`.
 - License: **GNU GPL v3.0**
 - Notes: driven through the `Moonlight.exe pair / stream / list` subcommands; its source is not modified.
 
-## 3. Material Design Icons (UI icons)
+## 3. .NET Framework 4.8
 
-- Project: https://materialdesignicons.com/ (SVG assets fetched via the Iconify API)
-- Use: button and tray menu icons; rasterized to 96px alpha masks with `resvg` at build time and
-  embedded as base64 in `icon_data.py`; only scaled and tinted at runtime
-- License: **Apache License 2.0**
+- Project: https://dotnet.microsoft.com/download/dotnet-framework
+- Use: runtime framework (WinForms / GDI+ / System.Net / System.IO.Compression)
+- License: distributed with Windows; this project does not redistribute the runtime
 
-## 4. Pillow (image processing)
+## 4. Windows API (system components)
 
-- Project: https://python-pillow.org/
-- Use: icon scaling/tinting, rounded shapes and progress bar rendering
-- License: **HPND License** (Pillow Software License)
+winmm (microphone capture/playback), iphlpapi & ws2_32 (adapter enumeration, UDP transport),
+advapi32 (registry, service control), user32 / shell32 / kernel32 (windows, tray, processes, mutex).
 
-## 5. pywin32 (Windows API bindings)
+## 5. Icon
 
-- Project: https://github.com/mhammond/pywin32
-- Use: system tray (`Shell_NotifyIcon`), window foregrounding, menu bitmaps
-- License: **PSF-2.0**
+`src/Resources/icon.ico` is original artwork by this project, released under GPL-3.0 with the repository.
 
-## 6. Python / Tcl-Tk
+## 6. Libraries inside Moonlight / Sunshine
 
-- Python: https://www.python.org/ (PSF License)
-- Tcl/Tk: https://www.tcl.tk/ (BSD-style License)
-- Use: runtime and graphical interface
+Moonlight bundles Qt, SDL and FFmpeg; Sunshine bundles Boost, FFmpeg and MiniUPnP. Their licenses
+apply as declared upstream.
 
 ---
 
@@ -139,5 +121,5 @@ is also released under GPL-3.0.
 
 ## Trademarks
 
-Sunshine, Moonlight, NVIDIA, AMD, Intel and other names and trademarks belong to their respective
-owners. This is a third-party project with no affiliation with or endorsement by those organizations.
+Sunshine, Moonlight, NVIDIA, AMD, Intel, Microsoft and other names and trademarks belong to their
+respective owners. This is a third-party project with no affiliation with or endorsement by them.

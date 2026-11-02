@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace MoonClass
+namespace MoonlightLanStreamer
 {
     /// <summary>界面多语言：跟随系统语言（中文系统 → 中文，其余 → 英文）。
     /// 环境变量 LANSTREAM_LANG=zh|en 可强制指定（便于测试）。</summary>

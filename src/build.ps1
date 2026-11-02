@@ -1,13 +1,13 @@
-﻿# 月光极速电子教室（C# / .NET Framework 4.8 版）—— 一键构建脚本
-# 用法（在 windows\ 目录下）：
-#   powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.0
+﻿# MoonlightLanStreamer（月光极速电子教室 / .NET Framework 4.8 + WinForms）—— 一键构建脚本
+# 用法（在 src\ 目录下）：
+#   powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.4
 #
 # 前置：Windows 10/11 自带 .NET Framework 4.8 运行时；编译需要下列任一项：
 #   - Visual Studio 2019/2022（含 ".NET 桌面开发" 工作负载）
 #   - Visual Studio Build Tools + ".NET Framework 4.8 SDK / 目标包"
 #   - .NET Framework 4.8 Developer Pack（提供 csc/msbuild）
 param(
-    [string]$Version = "1.3.3",
+    [string]$Version = "1.3.4",
     [string]$Configuration = "Release",
     [string]$MSBuild = "",
     [switch]$SkipSign
@@ -56,7 +56,7 @@ Write-Host "使用 MSBuild: $msbuildExe"
 
 Push-Location $dir
 try {
-    & $msbuildExe "$dir\MoonClassLanStream.csproj" `
+    & $msbuildExe "$dir\MoonlightLanStreamer.csproj" `
         /p:Configuration=$Configuration /p:Platform=AnyCPU `
         /p:Version=$Version /p:FileVersion=$Version /p:AssemblyVersion=$Version `
         /v:minimal /nologo
@@ -65,7 +65,7 @@ try {
 finally { Pop-Location }
 
 $outDir = Join-Path $dir "bin\$Configuration"
-$exe = Join-Path $outDir "MoonClassLanStream.exe"
+$exe = Join-Path $outDir "MoonlightLanStreamer.exe"
 if (-not (Test-Path -LiteralPath $exe)) { Write-Error "未生成 $exe" }
 
 # 组装交付：单个 exe 直接放 dist 根目录
@@ -86,7 +86,7 @@ else {
         Write-Host "提示：运行时以外置 runtimes.zip 分发（复制 72 MB）" -ForegroundColor Yellow
     }
     else {
-        Write-Host "提示：未找到 runtimes.zip，运行 python make_runtimes.py 生成后再分发" -ForegroundColor Yellow
+        Write-Host "提示：未找到 runtimes.zip，运行 .\make_runtimes.ps1 生成后再分发" -ForegroundColor Yellow
     }
 }
 

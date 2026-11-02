@@ -8,7 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace MoonClass
+namespace MoonlightLanStreamer
 {
     public class MainForm : Form
     {

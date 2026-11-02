@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Web.Script.Serialization;
 
-namespace MoonClass
+namespace MoonlightLanStreamer
 {
     /// <summary>界面设置持久化：与 Python 版共用 %LOCALAPPDATA%\LanStream\lanstream_state.json，
     /// 两个版本可以互相读到对方的设置。</summary>

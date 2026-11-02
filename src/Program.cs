@@ -5,12 +5,12 @@ using System.Security.Principal;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace MoonClass
+namespace MoonlightLanStreamer
 {
     internal static class Program
     {
-        const string MutexName = @"Local\MoonClassEduApp";
-        const string EventName = @"Local\MoonClassEduActivate";
+        const string MutexName = @"Local\MoonlightLanStreamerApp";
+        const string EventName = @"Local\MoonlightLanStreamerActivate";
 
         static Mutex _mutex;
         static EventWaitHandle _event;

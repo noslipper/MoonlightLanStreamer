@@ -5,7 +5,7 @@ using System.IO;
 using System.Threading;
 using Microsoft.Win32;
 
-namespace MoonClass
+namespace MoonlightLanStreamer
 {
     /// <summary>Moonlight 客户端：身份注册表、配对、串流。
     /// 注册表位置与 Python 版一致：HKCU\Software\Moonlight Game Streaming Project\Moonlight</summary>

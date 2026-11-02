@@ -3,7 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 
-namespace MoonClass
+namespace MoonlightLanStreamer
 {
     /// <summary>系统托盘：单击呼出/最小化，右键菜单（开播/停止/收看/退出）。</summary>
     public class TrayIcon : IDisposable

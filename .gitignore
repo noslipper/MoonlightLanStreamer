@@ -1,19 +1,15 @@
-# ---- Python ----
-__pycache__/
-*.py[cod]
-*.pyo
-.pytest_cache/
-.venv/
-venv/
-
 # ---- 构建产物 ----
+bin/
+obj/
 build/
 dist/
-*.spec
 *.exe
 *.dll
 *.pdb
-# 注意：windows/app.manifest 是编译输入（ApplicationManifest），不能忽略
+# 注意：src/app.manifest 是编译输入（ApplicationManifest），不能忽略
+
+# ---- 本地生成的运行时包（约 73 MB，由 src/make_runtimes.ps1 生成，不入库）----
+runtimes.zip
 
 # ---- 运行时数据（本地配置/日志/证书缓存）----
 .runtime/
@@ -21,10 +17,6 @@ dist/
 *.log.[0-9]
 *.bak
 *.tmp
-
-# ---- 内置运行时打包（约 73MB，由 make_runtimes.py 本地生成，不入库）----
-runtimes.zip
-windows/Resources/runtimes.zip
 
 # ---- 开发期临时脚本与预览图 ----
 scratch/
@@ -44,7 +36,4 @@ desktop.ini
 runtime_config/credentials/*.pem
 runtime_config/client_identity/
 *.pem
-
-# C# build outputs
-windows/bin/
-windows/obj/
+*.pfx

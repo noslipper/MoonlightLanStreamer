@@ -7,7 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace MoonClass
+namespace MoonlightLanStreamer
 {
     /// <summary>Sunshine 服务端：生成配置、启停、状态与在线客户端统计、防火墙、PIN 守护、局域网扫描。
     /// 与 Python 版行为一致（同样的 sunshine.conf 键、同样的日志事件计数）。</summary>

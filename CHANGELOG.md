@@ -1,7 +1,6 @@
 # 更新记录
 
 本项目遵循简化的 Keep a Changelog 约定，版本号格式为 `主版本.次版本.修订号`。
-C# 版自 v1.3.0 起提供，v1.3.2 之后为唯一在维护的实现。
 
 ## [1.3.4] - 2026-11-02
 
@@ -10,12 +9,19 @@ C# 版自 v1.3.0 起提供，v1.3.2 之后为唯一在维护的实现。
   `moonlight list <host>`。旧实现读注册表 `hosts\<n>\hostname` 与输入的 IP 比对，
   而 Moonlight 6.x 在那里存的是**对方主机名**（如 `MoonClass-Room`），永远不相等 →
   每次都判"未配对"、清空已有配对并重新配对（配对前还会 `taskkill Moonlight`）。
-- **独占全屏被系统关闭**：串流改为 `--display-mode borderless`。桌面锁屏 / 远程会话 /
+- **独占全屏被系统关闭**：串流改为 `--display-mode borderless`。锁屏 / 远程会话 /
   无交互桌面时，系统会给独占全屏窗口发 WM_CLOSE，Moonlight 收到 SDL_QUIT 后优雅退出
   （退出码 0），表现为每隔几秒闪退一次。
 - 新增 `RunMoonlight()` 命令封装：stdout / stderr 双线程并发读走，避免单路 `ReadToEnd`
   写满管道死锁；配对检查结论写入 `moonlight.log`，便于现场排查。
-- 去掉代码里的个人内网 IP：默认目标主机改为示例占位 `192.168.1.100`。
+
+### 变更（仓库整理）
+- 项目更名为 **MoonlightLanStreamer**，源码集中到 `src/`（`windows/` → `src/`），
+  程序集名 / 命名空间 / 资源清单名同步为 `MoonlightLanStreamer`；exe 展示的产品名
+  仍为「月光极速电子教室」。
+- **移除 Python 版实现**，仓库只保留 .NET 版本；历史实现见标签 `python-edition-final`。
+  运行时打包脚本由 `make_runtimes.py` 改写为 `src/make_runtimes.ps1`，仓库不再需要 Python。
+- 去掉代码里的个人内网 IP：默认目标主机改空，输入框占位使用示例值 `192.168.1.100`。
 
 ## [1.3.3] - 2026-11-02
 
@@ -25,7 +31,7 @@ C# 版自 v1.3.0 起提供，v1.3.2 之后为唯一在维护的实现。
   `vcruntime140.dll` 作为运行时是否就绪的哨兵；`moonlight.log` 改为**实时落盘**，
   记录启动路径、完整命令行与退出码。
 - **启动就"未响应"**：状态轮询里的端口探活（最长 1.5 s）从 UI 线程移到后台线程，
-  加防重入；跨线程控件读取改用持久化字段，`DoWatch`/`SaveState` 自动封送回 UI 线程。
+  加防重入；跨线程控件读取改用持久化字段，`DoWatch` / `SaveState` 自动封送回 UI 线程。
 - 学生端 Moonlight 输出抓取改为 stdout / stderr 双管道 drain，防止管道写满卡死；
   教室端检测 `WSASendMsg 10055` 风暴（≥10 次/1.5 s）自动重启 Sunshine，释放僵尸会话。
 
@@ -62,14 +68,19 @@ C# 版自 v1.3.0 起提供，v1.3.2 之后为唯一在维护的实现。
 ## [1.3.0] - 2026-10-30
 
 ### 新增
-- **C# 版**（`windows/`，.NET Framework 4.8 + WinForms，纯代码自绘 UI）：单文件 EXE，
+- 首个 .NET 版本（`.NET Framework 4.8 + WinForms`，纯代码自绘 UI）：单文件 EXE，
   运行时内嵌，首次运行释放。
 - 中英双语界面（跟随系统语言，可用 `LANSTREAM_LANG` 覆盖）。
 - 音频：系统声音串流 + 麦克风混入 + 横向分段电平条。
 - 学生端自动跟随：自动发现已开播主机并进入收看，教室端停播后自动退出并继续监听。
 
-## [1.2.0] - 2026-10-29
+---
 
-### 新增
-- 首个公开版本（Python + tkinter，PyInstaller 单文件）。
-- 一键开播 / 一键收看、固定 PIN 自动配对、局域网扫描、客户端计数、系统托盘、单实例运行。
+## 关于 Python 版（已移除）
+
+仓库早期（v1.2.0 及更早）另有一套等价的 Python + tkinter 实现，功能与 .NET 版一致，
+已从 `main` 分支移除，不再维护。需要查阅请检出标签：
+
+```bash
+git checkout python-edition-final
+```

@@ -7,7 +7,7 @@ using System.Reflection;
 using System.Security.Principal;
 using System.Threading;
 
-namespace MoonClass
+namespace MoonlightLanStreamer
 {
     /// <summary>路径、运行时释放、管理员判定等基础设施。
     /// 目录结构与 Python 版完全一致（%LOCALAPPDATA%\LanStream），两个版本可以共用
@@ -39,7 +39,7 @@ namespace MoonClass
                 if (_appIcon == null)
                 {
                     Assembly asm = Assembly.GetExecutingAssembly();
-                    using (Stream s = asm.GetManifestResourceStream("MoonClass.Resources.icon.ico"))
+                    using (Stream s = asm.GetManifestResourceStream("MoonlightLanStreamer.Resources.icon.ico"))
                     {
                         if (s != null) _appIcon = new Icon(s);
                     }
@@ -121,7 +121,7 @@ namespace MoonClass
                 else
                 {
                     var asm = Assembly.GetExecutingAssembly();
-                    using (Stream s = asm.GetManifestResourceStream("MoonClass.Resources.runtimes.zip"))
+                    using (Stream s = asm.GetManifestResourceStream("MoonlightLanStreamer.Resources.runtimes.zip"))
                     {
                         if (s == null) { LogStartup("嵌入运行时资源缺失"); return; }
                         string tmp = Path.Combine(Path.GetTempPath(), "mcls_runtimes.zip");
@@ -180,7 +180,7 @@ namespace MoonClass
                     {
                         string target = Path.Combine(ConfigDir, name);
                         if (File.Exists(target)) continue;
-                        using (Stream s = asm.GetManifestResourceStream("MoonClass.Resources.runtime_config." + name))
+                        using (Stream s = asm.GetManifestResourceStream("MoonlightLanStreamer.Resources.runtime_config." + name))
                         {
                             if (s == null) continue;
                             using (var fs = new FileStream(target, FileMode.Create, FileAccess.Write))
