@@ -640,7 +640,7 @@ def lan_ips() -> list[str]:
 
 def _self_ip():
     ips = lan_ips()
-    return ips[0] if ips else "192.168.110.20"
+    return ips[0] if ips else "192.168.1.100"
 
 def scan_lan_hosts(timeout=0.3, max_threads=48) -> list[str]:
     """扫描局域网中已开播(Sunshine 端口开放)的主机 IP。返回列表。"""

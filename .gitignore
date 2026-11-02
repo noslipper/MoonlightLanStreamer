@@ -10,16 +10,21 @@ venv/
 build/
 dist/
 *.spec
-*.manifest
+*.exe
+*.dll
+*.pdb
+# 注意：windows/app.manifest 是编译输入（ApplicationManifest），不能忽略
 
 # ---- 运行时数据（本地配置/日志/证书缓存）----
 .runtime/
 *.log
-*.log.1
-*.log.2
+*.log.[0-9]
+*.bak
+*.tmp
 
-# ---- 内置运行时打包（94MB，由 make_runtimes.py 本地生成，不入库）----
+# ---- 内置运行时打包（约 73MB，由 make_runtimes.py 本地生成，不入库）----
 runtimes.zip
+windows/Resources/runtimes.zip
 
 # ---- 开发期临时脚本与预览图 ----
 scratch/
@@ -28,6 +33,9 @@ scratch/
 .workbuddy/
 .idea/
 .vscode/
+.vs/
+*.user
+*.suo
 *.swp
 Thumbs.db
 desktop.ini
