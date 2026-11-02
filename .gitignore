@@ -36,3 +36,7 @@ desktop.ini
 runtime_config/credentials/*.pem
 runtime_config/client_identity/
 *.pem
+
+# C# build outputs
+windows/bin/
+windows/obj/

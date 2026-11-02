@@ -270,11 +270,17 @@ namespace MoonClass
             Height = 22;
         }
 
+        int _lastLit = -1;
+
         public void SetLevel(float v)
         {
             v = v < 0 ? 0 : (v > 1 ? 1 : v);
-            if (Math.Abs(v - _lv) < 0.004f) return;      // 变化不明显就不重绘，省 CPU
             _lv = v;
+            // 按“点亮的格数”判断是否需要重绘：格数变了才画，既省 CPU 又不会因为
+            // 微小抖动被阈值吃掉（原来用 0.004 的固定阈值，底噪附近几乎永远不重绘）。
+            int lit = (int)Math.Round(v * Segs);
+            if (lit == _lastLit) return;
+            _lastLit = lit;
             Invalidate();
         }
 

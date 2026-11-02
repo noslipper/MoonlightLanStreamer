@@ -24,6 +24,8 @@ namespace MoonClass
             { "mic",                    new[] { "麦克风", "Microphone" } },
             { "mic_on_log",             new[] { "麦克风已混入串流（建议使用耳麦，避免啸叫）", "Microphone mixed into the stream (use a headset to avoid feedback)" } },
             { "mic_off_log",            new[] { "麦克风已关闭，仅串流系统声音", "Microphone off - only system sound is streamed" } },
+            { "audio_none",             new[] { "未检测到音频输入设备（仅串流系统声音）", "No audio input device found (system sound only)" } },
+            { "audio_err",              new[] { "⚠ 音频启动失败：", "⚠ Audio start failed: " } },
             // 收看
             { "watch",                  new[] { "一键收看", "Watch" } },
             { "watch_hint",             new[] { "一键收看", "Watch Stream" } },
@@ -83,6 +85,7 @@ namespace MoonClass
             { "not_paired",             new[] { "未配对，请先开播", "Not paired, please start streaming first" } },
             { "pair_fail_prefix",       new[] { "配对失败：", "Pairing failed: " } },
             { "already_running",        new[] { "程序已在运行，已切换到当前窗口", "Already running - switched to the existing window" } },
+            { "quit",                   new[] { "退出", "Quit" } },
         };
 
         public static void Init()

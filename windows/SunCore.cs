@@ -82,7 +82,8 @@ namespace MoonClass
             sb.AppendLine("# 全部指向可写运行时目录");
             sb.AppendLine("file_state = " + statePath);
             sb.AppendLine("credentials_file = " + statePath);
-            sb.AppendLine("log_path = " + Path.Combine(cfgDir, "sunshine.log"));
+            // 与在线客户端统计读取同一个文件（ClientCount 增量解析此日志的 CLIENT 事件）
+            sb.AppendLine("log_path = " + Runtime.LogFile);
             sb.AppendLine("pkey = " + Path.Combine(credDir, "cakey.pem"));
             sb.AppendLine("cert = " + Path.Combine(credDir, "cacert.pem"));
             sb.AppendLine("file_apps = " + appsPath);
@@ -240,13 +241,16 @@ namespace MoonClass
             return res;
         }
 
+        /// <summary>Sunshine 的 stdout/stderr 落到单独文件（仅用于排障）。
+        /// 绝不能写进 log_path 指向的 sunshine.log：那份日志是客户端计数的依据，
+        /// 混入一遍输出会让每个 CLIENT 事件被统计两次。</summary>
         static void AppendLog(string line)
         {
             if (string.IsNullOrEmpty(line)) return;
             try
             {
-                using (var fs = new FileStream(Runtime.LogFile, FileMode.Append, FileAccess.Write,
-                                               FileShare.ReadWrite))
+                using (var fs = new FileStream(Path.Combine(Runtime.AppDataDir, "sunshine_stdout.log"),
+                                               FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
                 using (var sw = new StreamWriter(fs, new UTF8Encoding(false)))
                 {
                     sw.WriteLine(line);
@@ -342,7 +346,7 @@ namespace MoonClass
                 byte[] data = Encoding.UTF8.GetBytes(json);
                 req.ContentLength = data.Length;
                 using (var s = req.GetRequestStream()) s.Write(data, 0, data.Length);
-                using (var rsp = (HttpWebResponse)req.GetResponse()) { rsp.Close(); }
+                using (var rsp = (System.Net.HttpWebResponse)req.GetResponse()) { rsp.Close(); }
             }
             catch { }
         }

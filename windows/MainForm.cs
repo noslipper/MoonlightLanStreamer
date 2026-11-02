@@ -20,14 +20,16 @@ namespace MoonClass
         RichTextBox _log;
         Label _sbState, _sbInfo;
         ProgressBar _prog;
-        Timer _pollTimer, _meterTimer;
+        // System.Threading.Timer 与 System.Windows.Forms.Timer 同名，两处 using 都在时会歧义，必须写全名
+        System.Windows.Forms.Timer _pollTimer, _meterTimer;
 
         Settings _st = new Settings();
         TrayIcon _tray;
         readonly MicAudio _mic = new MicAudio();
         int _lastClients = -1;
+        readonly bool _meterTest = Environment.GetEnvironmentVariable("LANSTREAM_METER_TEST") == "1";
+        int _sweepI;
         bool _started;
-        int _startPct;
         string _startText = "";
 
         static readonly string[] BitChoices = { "5", "8", "10", "15", "20", "30", "50" };
@@ -54,12 +56,21 @@ namespace MoonClass
             LoadStateToUi();
             StartAudio();
 
-            _pollTimer = new Timer { Interval = 1500 };
+            _pollTimer = new System.Windows.Forms.Timer { Interval = 1500 };
             _pollTimer.Tick += delegate { RefreshStatus(); };
             _pollTimer.Start();
 
-            _meterTimer = new Timer { Interval = 90 };
-            _meterTimer.Tick += delegate { try { _meter.SetLevel(_mic.Level()); } catch { } };
+            _meterTimer = new System.Windows.Forms.Timer { Interval = 90 };
+            _meterTimer.Tick += delegate
+            {
+                try
+                {
+                    if (_meterTest) { _meter.SetLevel(MeterSweep()); return; }   // 诊断：合成扫幅
+                    if (!_mic.IsRunning) { ApplyAudio(); return; }               // 设备热插拔后自愈
+                    _meter.SetLevel(_mic.Level());
+                }
+                catch { }
+            };
             _meterTimer.Start();
 
             RefreshStatus();
@@ -236,7 +247,7 @@ namespace MoonClass
             // row3 音频标签 + 麦克风开关
             var row3 = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel2, Margin = new Padding(0, 6, 0, 0) };
             var alab = Caption(I18n.T_("audio_input"));
-            alab.Location = new Point(0, 1);
+            alab.Location = new Point(0, 0);
             _swMic = new ToggleSwitch { Size = new Size(40, 21) };
             _swMic.Changed += delegate { OnMicChanged(); };
             var micLab = new Label
@@ -318,6 +329,19 @@ namespace MoonClass
             return cb;
         }
 
+        /// <summary>与左侧卡片同构的整行容器：Dock=Fill + 指定 Margin，内容一律顶对齐 (0,0)。
+        /// 左右两张卡片每行都用它包一层，行内控件起点才会完全一致。</summary>
+        static Panel Filled(Control inner, Padding margin)
+        {
+            var p = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel2, Margin = margin };
+            if (inner != null)
+            {
+                inner.Location = new Point(0, 0);
+                p.Controls.Add(inner);
+            }
+            return p;
+        }
+
         void BuildClientCard()
         {
             var t = Rows();
@@ -336,7 +360,7 @@ namespace MoonClass
             head.Controls.Add(lab);
             t.Controls.Add(head, 0, 0);
 
-            t.Controls.Add(Caption(I18n.T_("target_host")), 0, 1);
+            t.Controls.Add(Filled(Caption(I18n.T_("target_host")), new Padding(0)), 0, 1);
 
             var row2 = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel2, Margin = new Padding(0, 8, 0, 14) };
             _cbHost = MakeCombo(null, false);
@@ -352,7 +376,7 @@ namespace MoonClass
             };
             t.Controls.Add(row2, 0, 2);
 
-            t.Controls.Add(Caption(I18n.T_("autowatch")), 0, 3);
+            t.Controls.Add(Filled(Caption(I18n.T_("autowatch")), new Padding(0, 6, 0, 0)), 0, 3);
 
             var row4 = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel2, Margin = new Padding(0, 8, 0, 12) };
             var tip = new Label
@@ -381,7 +405,7 @@ namespace MoonClass
             };
             t.Controls.Add(row4, 0, 4);
 
-            t.Controls.Add(new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel2 }, 0, 5);
+            t.Controls.Add(Filled(null, new Padding(0, 2, 0, 14)), 0, 5);
 
             var row6 = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Panel2, Margin = new Padding(0, 2, 0, 16) };
             _btnWatch = new FlatButton { Text = I18n.T_("watch"), Fill = Theme.Accent, Kind = "watch" };
@@ -452,6 +476,13 @@ namespace MoonClass
                 _prog.Location = new Point(Math.Max(0, p.Width - _sbInfo.Width - 20 - _prog.Width), 11);
             };
             return p;
+        }
+
+        /// <summary>诊断用：模拟一个来回摆动的输入电平，用来确认电平条本身能刷新。</summary>
+        float MeterSweep()
+        {
+            _sweepI = (_sweepI + 1) % 120;
+            return (float)(0.5 + 0.45 * Math.Sin(_sweepI * Math.PI / 30.0));
         }
 
         // ================= 状态与设置 =================
@@ -535,10 +566,15 @@ namespace MoonClass
             try
             {
                 string dev = SelectedDevice();
-                if (string.IsNullOrEmpty(dev)) return;
-                _mic.Start(dev, _swMic.Checked);
+                if (string.IsNullOrEmpty(dev))
+                {
+                    Log(I18n.T_("audio_none"));
+                    return;
+                }
+                if (!_mic.Start(dev, _swMic.Checked) && _mic.LastError.Length > 0)
+                    Log(I18n.T_("audio_err") + _mic.LastError);
             }
-            catch { }
+            catch (Exception ex) { Log(I18n.T_("audio_err") + ex.Message); }
         }
 
         void ApplyAudio()
@@ -548,9 +584,10 @@ namespace MoonClass
                 string dev = SelectedDevice();
                 if (string.IsNullOrEmpty(dev)) { _mic.Stop(); return; }
                 if (_mic.IsRunning && _mic.Device == dev && _mic.Playback == _swMic.Checked) return;
-                _mic.Start(dev, _swMic.Checked);
+                if (!_mic.Start(dev, _swMic.Checked) && _mic.LastError.Length > 0)
+                    Log(I18n.T_("audio_err") + _mic.LastError);
             }
-            catch { }
+            catch (Exception ex) { Log(I18n.T_("audio_err") + ex.Message); }
         }
 
         void OnMicChanged()
@@ -571,6 +608,7 @@ namespace MoonClass
         // ================= 状态刷新 =================
         void RefreshStatus()
         {
+            if (InvokeRequired) { try { BeginInvoke(new Action(RefreshStatus)); } catch { } return; }   // 后台线程调用时切回 UI 线程
             SunCore.Status st;
             try { st = SunCore.ServerStatus(); }
             catch { return; }
