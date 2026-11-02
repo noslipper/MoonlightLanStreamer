@@ -22,7 +22,7 @@ import audio
 from lanstream_ui import Tray
 
 APP_TITLE = i18n.t("app_title")
-APP_VERSION = "v1.3.2"
+APP_VERSION = "v1.3.3"
 DEFAULT_HOST = "192.168.110.20"
 
 # 窗口默认尺寸（启动时居中显示）；英文文案更长，窗口相应加宽
