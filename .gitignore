@@ -1,0 +1,38 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# ---- 构建产物 ----
+build/
+dist/
+*.spec
+*.manifest
+
+# ---- 运行时数据（本地配置/日志/证书缓存）----
+.runtime/
+*.log
+*.log.1
+*.log.2
+
+# ---- 内置运行时打包（94MB，由 make_runtimes.py 本地生成，不入库）----
+runtimes.zip
+
+# ---- 开发期临时脚本与预览图 ----
+scratch/
+
+# ---- 工具/编辑器 ----
+.workbuddy/
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+desktop.ini
+
+# ---- 证书/私钥（首次开播时由 Sunshine 按机器生成，切勿入库）----
+runtime_config/credentials/*.pem
+runtime_config/client_identity/
+*.pem

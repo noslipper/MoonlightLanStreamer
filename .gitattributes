@@ -1,0 +1,7 @@
+# 统一换行：源码用 LF，PowerShell 脚本用 CRLF，二进制不转换
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.ico binary
+*.png binary
+*.zip binary
