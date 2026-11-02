@@ -1,0 +1,13 @@
+{
+  "apps": [
+    {
+      "name": "Desktop",
+      "prep-cmd": [],
+      "detached": [],
+      "cmd": "",
+      "working-dir": "",
+      "elevated": false,
+      "auto-detected": true
+    }
+  ]
+}
