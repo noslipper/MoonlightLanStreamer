@@ -54,5 +54,17 @@ with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         c = add_dir(zf, root, prefix)
         print("%s -> %s/ (%d files)" % (root, prefix, c))
         total += c
+
+    # VC++ 运行库（app-local 部署）：Moonlight 是 MSVC/Qt 编译，缺了
+    # VCRUNTIME140/MSVCP140 在干净机器上会直接 loader 失败（弹框卡住、无日志）
+    vc_names = ["msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
+                "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll",
+                "vcruntime140.dll", "vcruntime140_1.dll", "concrt140.dll"]
+    for n in vc_names:
+        src = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", n)
+        if os.path.exists(src):
+            zf.write(src, os.path.join("client", n))
+            total += 1
+            print("VC runtime -> client/%s" % n)
 size = os.path.getsize(OUT) / 1024 / 1024
 print("runtimes.zip = %.1f MB, %d files" % (size, total))
