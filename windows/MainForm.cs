@@ -24,6 +24,7 @@ namespace MoonClass
         ProgressBar _prog;
         // System.Threading.Timer 与 System.Windows.Forms.Timer 同名，两处 using 都在时会歧义，必须写全名
         System.Windows.Forms.Timer _pollTimer, _meterTimer;
+        bool _pollBusy;                          // 轮询防重入（探活是阻塞操作，跑在后台线程）
 
         Settings _st = new Settings();
         TrayIcon _tray;
@@ -72,7 +73,19 @@ namespace MoonClass
             };
 
             _pollTimer = new System.Windows.Forms.Timer { Interval = 1500 };
-            _pollTimer.Tick += delegate { RefreshStatus(); SyncUdpMic(); FollowTeacher(); };
+            // 轮询里的探活（PortOpen 最长 1.5s）绝不能在 UI 线程跑：目标机器不通时
+            // 窗口每 1.5 秒就被卡住一次，表现为"程序一直未响应"。全部挪到后台线程，
+            // RefreshStatus/Log/ShowProgress 内部自带 BeginInvoke 回 UI。
+            _pollTimer.Tick += delegate
+            {
+                if (_pollBusy) return;                  // 上一轮还没跑完就跳过本轮
+                _pollBusy = true;
+                new Thread(delegate()
+                {
+                    try { RefreshStatus(); SyncUdpMic(); FollowTeacher(); }
+                    finally { _pollBusy = false; }
+                }) { IsBackground = true, Name = "StatusPoll" }.Start();
+            };
             _pollTimer.Start();
 
             _meterTimer = new System.Windows.Forms.Timer { Interval = 90 };
@@ -567,6 +580,7 @@ namespace MoonClass
 
         void SaveState()
         {
+            if (InvokeRequired) { try { BeginInvoke(new Action(SaveState)); } catch { } return; }  // 可能被后台线程调用
             try
             {
                 double mb;
@@ -911,6 +925,7 @@ namespace MoonClass
 
         public void DoWatch()
         {
+            if (InvokeRequired) { try { BeginInvoke(new Action(DoWatch)); } catch { } return; }   // 自动跟随时在后台线程触发
             SaveState();
             string host = (_cbHost.Text ?? "").Trim();
             if (host.Length == 0) return;
@@ -964,7 +979,7 @@ namespace MoonClass
 
         void AutoWatch()
         {
-            if (!_swAuto.Checked) return;
+            if (!_st.Autowatch) return;
             string host = (_st.Host ?? "").Trim();
             if (host.Length == 0) return;
             Log(I18n.T_("auto_connecting", host));
@@ -994,7 +1009,7 @@ namespace MoonClass
 
         void FollowTeacher()
         {
-            if (!_swAuto.Checked || _followBusy) return;
+            if (!_st.Autowatch || _followBusy) return;   // 后台线程：用持久化字段，不读控件
             string host = (_st.Host ?? "").Trim();
             if (host.Length == 0) return;
 
@@ -1094,7 +1109,7 @@ namespace MoonClass
             bool moonRunning;
             try { moonRunning = Process.GetProcessesByName("Moonlight").Length > 0; }
             catch { return; }
-            string host = (_cbHost.Text ?? "").Trim();
+            string host = (_st.Host ?? "").Trim();      // 后台线程里不读控件，用持久化值
             if (moonRunning)
             {
                 _udpMic.Start(host);
