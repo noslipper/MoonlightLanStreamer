@@ -27,6 +27,7 @@ namespace MoonClass
         Settings _st = new Settings();
         TrayIcon _tray;
         readonly MicAudio _mic = new MicAudio();
+        readonly MicUdpReceiver _udpMic = new MicUdpReceiver();
         int _lastClients = -1;
         readonly bool _meterTest = Environment.GetEnvironmentVariable("LANSTREAM_METER_TEST") == "1";
         readonly bool _dbg = Environment.GetEnvironmentVariable("LANSTREAM_DEBUG") == "1";
@@ -63,7 +64,7 @@ namespace MoonClass
             StartAudio();
 
             _pollTimer = new System.Windows.Forms.Timer { Interval = 1500 };
-            _pollTimer.Tick += delegate { RefreshStatus(); FollowTeacher(); };
+            _pollTimer.Tick += delegate { RefreshStatus(); SyncUdpMic(); FollowTeacher(); };
             _pollTimer.Start();
 
             _meterTimer = new System.Windows.Forms.Timer { Interval = 90 };
@@ -87,7 +88,8 @@ namespace MoonClass
                     {
                         _dbgLastLog = Environment.TickCount;
                         Log("[dbg] mic level=" + lv.ToString("0.000") +
-                            " dev=" + _mic.Device + " playback=" + _mic.Playback);
+                            " dev=" + _mic.Device + " send=" + _mic.Send +
+                            " rx=" + _udpMic.IsRunning);
                     }
                 }
                 catch { }
@@ -469,7 +471,7 @@ namespace MoonClass
                 Font = Theme.Mono(9.5f),
                 WordWrap = true,
                 DetectUrls = false,
-                ScrollBars = RichTextBoxScrollBars.Vertical,
+                ScrollBars = RichTextBoxScrollBars.None,   // 不显示滚动条；滚轮/拖选仍可滚动
                 Padding = new Padding(10, 4, 10, 6),
             };
             wrap.Controls.Add(_log);
@@ -614,7 +616,7 @@ namespace MoonClass
             {
                 string dev = SelectedDevice();
                 if (string.IsNullOrEmpty(dev)) { _mic.Stop(); return; }
-                if (_mic.IsRunning && _mic.Device == dev && _mic.Playback == _swMic.Checked) return;
+                if (_mic.IsRunning && _mic.Device == dev && _mic.Send == _swMic.Checked) return;
                 // 失败只记一次，恢复成功才清标志——否则 90ms 的自愈定时器会把错误刷满日志
                 bool ok = _mic.Start(dev, _swMic.Checked);
                 if (!ok)
@@ -652,6 +654,7 @@ namespace MoonClass
             SunCore.Status st;
             try { st = SunCore.ServerStatus(); }
             catch { return; }
+            MicAudio.Live = st.Streaming;               // 只有直播中才对外广播麦克风
 
             if (st.Running && st.Clients != _lastClients)
             {
@@ -928,6 +931,20 @@ namespace MoonClass
         {
             try { SaveState(); } catch { }
             try { _mic.Stop(); } catch { }
+            try { _udpMic.Stop(); } catch { }
+        }
+
+        // ================= 学生端麦克风接收 =================
+        /// <summary>收看中（Moonlight 运行）才接收教室端的麦克风广播并本地播放；
+        /// 退出收看立即停，避免把教室声音一直放出来。每 1.5s 随状态轮询执行。</summary>
+        void SyncUdpMic()
+        {
+            bool moonRunning;
+            try { moonRunning = Process.GetProcessesByName("Moonlight").Length > 0; }
+            catch { return; }
+            string host = (_cbHost.Text ?? "").Trim();
+            if (moonRunning) _udpMic.Start(host);
+            else if (_udpMic.IsRunning) _udpMic.Stop();
         }
     }
 }
