@@ -15,7 +15,7 @@ namespace MoonlightLanStreamer
     public static class Runtime
     {
         public const string AppName = "MoonClass LanStream";
-        public const string Version = "v1.3.4";
+        public const string Version = "v1.3.5";
         public const int SunshinePort = 47989;
         public const int StreamPortLo = 47984;
         public const int StreamPortHi = 48010;

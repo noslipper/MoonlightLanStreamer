@@ -8,9 +8,9 @@ using System.Reflection;
 [assembly: AssemblyCopyright("Copyright © 2026 MoonClass")]        // 版权
 [assembly: AssemblyTrademark("MoonlightLanStreamer")]
 
-[assembly: AssemblyVersion("1.3.4.0")]
-[assembly: AssemblyFileVersion("1.3.4.0")]
-[assembly: AssemblyInformationalVersion("1.3.4")]                  // 产品版本
+[assembly: AssemblyVersion("1.3.5.0")]
+[assembly: AssemblyFileVersion("1.3.5.0")]
+[assembly: AssemblyInformationalVersion("1.3.5")]                  // 产品版本
 
 [assembly: AssemblyConfiguration("Release")]
 [assembly: AssemblyCulture("")]

@@ -699,7 +699,14 @@ namespace MoonlightLanStreamer
             try { st = SunCore.ServerStatus(); }
             catch { return; }
             MicAudio.Live = st.Streaming;               // 只有直播中才对外广播麦克风
-            SyncBeacon(st.Running);                     // 教室端：开播登记订阅者 / 停播主动通知学生端
+
+            // 教室端：开播登记订阅者 / 停播主动通知学生端。
+            // 停播判定必须滞回：Sunshine 忙时端口探活偶发超时会翻成"未开播"，
+            // 若立刻广播停播信令，全班学生端会同时退出（表现为"上课中途集体断线几次"）。
+            // 连续 4 轮（约 6 秒）确认不在了才广播停播。
+            if (st.Running) _srvDownTicks = 0; else _srvDownTicks++;
+            bool beaconUp = st.Running || (_beaconOn && _srvDownTicks < 4);
+            SyncBeacon(beaconUp);
 
             // 发送风暴自愈：sunshine.log 持续刷 WSASendMsg 10055（健康会话为 0，历史日志验证）
             // 说明客户端已死但 Sunshine 没释放会话（僵尸会话），学生端之后的每次重连都会被拒，
@@ -774,6 +781,7 @@ namespace MoonlightLanStreamer
         /// <summary>本机作为教室端：Sunshine 起来时登记学生端订阅者，停播时主动广播
         /// "已停播"信号，让学生端立刻退出 Moonlight（不用等探活超时判断）。</summary>
         bool _beaconOn;
+        int _srvDownTicks;              // 教室端连续探活失败轮数（停播判定滞回，防抖动误判）
 
         void SyncBeacon(bool serverUp)
         {
@@ -810,6 +818,7 @@ namespace MoonlightLanStreamer
             catch { return; }
             try { _udpMic.Stop(); } catch { }               // 顺带停掉麦克风接收
             if (!moonRunning) return;
+            ClientCore.AppendLine("· 收到教室端停播信令（" + (from ?? "-") + "）→ 结束 Moonlight");
             try { ClientCore.KillAll(); } catch { }
             Log(I18n.T_("beacon_stop_recv", from ?? "-"));
             RefreshStatus();
@@ -1007,6 +1016,7 @@ namespace MoonlightLanStreamer
         /// 每 1.5 秒随状态轮询执行一次。</summary>
         int _downTicks;                 // 连续探活失败次数（含滞回，避免抖动误判停播）
         int _joinFails;                 // 连续自动进入失败次数（失败退避）
+        DateTime _downSince = DateTime.MinValue;   // 本轮探活失败从何时开始（停播判定按"持续时长"）
         DateTime _nextJoinAfter = DateTime.MinValue;
         DateTime _nextHealAfter = DateTime.MinValue;   // 发送风暴自愈冷却
 
@@ -1019,10 +1029,16 @@ namespace MoonlightLanStreamer
             bool moonRunning;
             try { moonRunning = Process.GetProcessesByName("Moonlight").Length > 0; }
             catch { return; }
-            // 超时放宽到 1.5s：教室端编码繁忙时 400ms 探活会误判"已停播"，
-            // 导致学生端刚连上就被杀掉、又立刻重连——表现为"进不去桌面、一直重试"
-            bool teacherUp = Runtime.PortOpen(host, Runtime.SunshinePort, 1500);
-            if (teacherUp) _downTicks = 0; else _downTicks++;
+            // 探活超时放宽到 3s：教室端编码繁忙 / 学生端有丢包时，TCP 握手几百毫秒内完不成是常态。
+            // 注意这里只用于"该不该加入"，绝不作为"该不该结束已有收看"的唯一依据（见下）。
+            bool teacherUp = Runtime.PortOpen(host, Runtime.SunshinePort, 3000);
+            if (teacherUp) { _downTicks = 0; _downSince = DateTime.MinValue; }
+            else
+            {
+                _downTicks++;
+                if (_downSince == DateTime.MinValue) _downSince = DateTime.Now;
+            }
+            double downSec = _downSince == DateTime.MinValue ? 0 : (DateTime.Now - _downSince).TotalSeconds;
 
             if (teacherUp && !moonRunning)
             {
@@ -1032,11 +1048,26 @@ namespace MoonlightLanStreamer
                 DoWatch();
                 new Thread(delegate() { Thread.Sleep(6000); _followBusy = false; })
                 { IsBackground = true }.Start();
+                return;
             }
-            else if (!teacherUp && _downTicks >= 2 && moonRunning)   // 连续 2 次确认停播才退出
+
+            if (moonRunning && !teacherUp)
             {
-                try { ClientCore.KillAll(); } catch { }
-                Log(I18n.T_("auto_exit"));
+                // 正在收看时探活失败：先当网络抖动画，继续收看（Moonlight 自己会做 RFI 重传恢复）。
+                // v1.3.4 及更早版本这里只容忍 2 轮（约 3 秒）就 taskkill，造成"一节课断 3、4 次"：
+                // 丢包时 Sunshine 的 HTTP 端口握手变慢 → 误判停播 → 杀进程 → 重新配对进桌面。
+                // 真正的停播由停播信令（LMSQ，秒级）负责；这里只做兜底，必须持续 15 秒才动手。
+                if (_downTicks == 2)
+                    Log(I18n.T_("probe_lag", host));
+                if (downSec >= 15)
+                {
+                    ClientCore.AppendLine("· 教室端连续 " + _downTicks + " 次探活失败（约 " +
+                        Math.Round(downSec) + " 秒），判定已停播 → 结束 Moonlight（exit code 1 = 本机主动结束）");
+                    try { ClientCore.KillAll(); } catch { }
+                    Log(I18n.T_("auto_exit"));
+                    _downSince = DateTime.MinValue;
+                    _downTicks = 0;
+                }
             }
         }
 

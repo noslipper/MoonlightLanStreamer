@@ -419,10 +419,22 @@ namespace MoonlightLanStreamer
         public static Status ServerStatus()
         {
             var st = new Status();
-            st.Running = Runtime.PortOpen(Runtime.SunshinePort, 250);
+            // 双判据（端口探活 OR 进程存活）：
+            // 本机 47989 是 Sunshine 内置的 HTTP 服务，在 60fps 编码 + 多客户端推流时，
+            // 偶尔会 >250ms 才完成 TCP 握手（尤其客户机重连造成 RFI 风暴时）。
+            // 只按端口判定会把这种瞬时抖动翻成"未开播"，进而触发停播信令广播，
+            // 把全班学生端一起踢下线——这正是 v1.3.4 及更早版本"上课中途断 3、4 次"的原因。
+            st.Running = Runtime.PortOpen(Runtime.SunshinePort, 1000) || SunshineProcessAlive();
             st.Clients = st.Running ? ClientCount() : 0;
             st.Streaming = st.Clients > 0;
             return st;
+        }
+
+        /// <summary>本机是否还有 sunshine.exe 在跑（服务端进程存活即视为"仍在开播"）。</summary>
+        public static bool SunshineProcessAlive()
+        {
+            try { return Process.GetProcessesByName("sunshine").Length > 0; }
+            catch { return false; }
         }
 
         // ---------------- 局域网扫描 ----------------

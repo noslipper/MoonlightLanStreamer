@@ -72,6 +72,7 @@ namespace MoonlightLanStreamer
             { "auto_connecting",        new[] { "开机自动收看：正在连接 {0} …", "Auto-watch: connecting to {0} …" } },
             { "auto_join",              new[] { "检测到教室端已开播，自动进入收看…", "Teacher started streaming - joining automatically…" } },
             { "auto_exit",              new[] { "教室端已停播，自动退出收看", "Teacher stopped - leaving the stream" } },
+            { "probe_lag",             new[] { "教室端探活超时（网络抖动？），继续收看，15 秒内恢复则不打断", "Host probe timed out (network jitter?) - keeping the stream, only leaving after 15 s" } },
             { "beacon_stop_recv",       new[] { "收到教室端停播信号（{0}），已退出收看", "Stop signal from teacher ({0}) - stream closed" } },
             { "beacon_stop_send",       new[] { "停播信号已发出（{0} 个目标）", "Stop signal sent ({0} targets)" } },
             { "watch_dropped",          new[] { "⚠ Moonlight 启动后很快退出，未能进入对方桌面（详见 moonlight.log）", "⚠ Moonlight exited right after launch (see moonlight.log)" } },

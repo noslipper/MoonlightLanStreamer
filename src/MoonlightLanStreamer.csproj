@@ -17,11 +17,11 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <LangVersion>7.3</LangVersion>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <ProductVersion>1.3.4</ProductVersion>
+    <ProductVersion>1.3.5</ProductVersion>
     <AssemblyTitle>月光极速电子教室</AssemblyTitle>
     <Product>MoonlightLanStreamer</Product>
     <Company>MoonClass</Company>
-    <Version>1.3.4</Version>
+    <Version>1.3.5</Version>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>

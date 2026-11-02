@@ -7,7 +7,7 @@
 >
 > Windows 桌面端产品名为「月光极速电子教室」（即 exe 的文件说明 / 产品名称）。
 
-**当前版本：v1.3.4** ｜ 更新记录见 [CHANGELOG.md](CHANGELOG.md) ｜ 技术栈：.NET Framework 4.8 + WinForms（纯代码自绘，无 XAML）
+**当前版本：v1.3.5** ｜ 更新记录见 [CHANGELOG.md](CHANGELOG.md) ｜ 技术栈：.NET Framework 4.8 + WinForms（纯代码自绘，无 XAML）
 
 ---
 
@@ -99,7 +99,7 @@ Mic 通道，因此麦克风走**独立 UDP 通道**（自定义 `LMS1` 音频�
 
 ## 快速开始
 
-1. 运行 `月光极速电子教室-v1.3.4.exe`（教师机、学生机是同一个程序）
+1. 运行 `月光极速电子教室-v1.3.5.exe`（教师机、学生机是同一个程序）
 2. **教师机**：确认码率/帧率 → 点「一键开播」，状态变「正在直播」即开始
 3. **学生机**：输入教师机 IP（或点「一键检测」自动发现）→ 点「一键收看」
 4. 机房批量部署：把学生机的「开机自动收看」打开并填好教师机 IP，
@@ -149,12 +149,12 @@ cd src
 powershell -ExecutionPolicy Bypass -File .\make_runtimes.ps1
 
 # 3) 构建单文件 exe（不加 -SkipSign 时会用代码签名证书签名并打时间戳）
-powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.4
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.5
 # 没有证书或不想签：
-powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.4 -SkipSign
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.5 -SkipSign
 ```
 
-产物：`dist\月光极速电子教室-v1.3.4.exe`（约 73 MB，运行时已内嵌）。
+产物：`dist\月光极速电子教室-v1.3.5.exe`（约 73 MB，运行时已内嵌）。
 
 也可以直接用 VS 2022 打开 `src\MoonlightLanStreamer.csproj`（经典项目格式，无需转换）后 F5 / 生成。
 
@@ -209,6 +209,13 @@ v1.3.4 修了两个根因：① 判断"是否已配对"曾读注册表 `hostname
 永远不等）→ 每次都误判未配对、反复清空有效配对；现已改回执行 `moonlight list <host>` 判定。
 ② 独占全屏（`--display-mode fullscreen`）在锁屏/远程会话下会被系统 WM_CLOSE，Moonlight 正常退出
 被当成闪退 → 已改为 borderless（观感一样铺满、无标题栏）。
+
+**Q：一节课中间会莫名其妙断几次（画面黑一下又回来 / 直接退回桌面重进）？**
+v1.3.5 修了。这种"断一下"其实不是崩溃，而是程序自己把 Moonlight 杀掉了：探活用 TCP 去连 Sunshine
+的 47989，网络一丢包（日志里满屏 `Waiting for RFI frame` / `Invalidate reference frame request`）
+或教师机编码繁忙时，握手慢于超时 → 被误判成"教室端已停播" → 教师端广播停播信令、学生端 taskkill。
+现在：教室端状态判定加了进程存活判据与 4 轮（约 6 s）滞回，学生端正在收看时探活失败要**持续 15 秒**
+才退出（真正停播走秒级的 `LMSQ` 信令）。日志里若看到 `exit code = 1`，就是"本机主动结束"，不是崩溃。
 
 **Q：学生机 Moonlight 起不来，也没有日志？**
 缺 VC++ 运行库（`VCRUNTIME140` / `MSVCP140`）时 Moonlight 直接 loader 失败。v1.3.3 起
@@ -271,7 +278,7 @@ and the teacher's desktop appears in seconds. Sunshine (host) and Moonlight (cli
 single EXE — nothing to install, no separate runtime download (the app targets .NET Framework 4.8, which
 ships with Windows 10 1903+ / 11).
 
-**Current version: v1.3.4** — see [CHANGELOG.md](CHANGELOG.md). The Windows product name shown in Explorer
+**Current version: v1.3.5** — see [CHANGELOG.md](CHANGELOG.md). The Windows product name shown in Explorer
 is 「月光极速电子教室」(Chinese); the project itself is MoonlightLanStreamer.
 
 ### Features
@@ -298,6 +305,14 @@ is 「月光极速电子教室」(Chinese); the project itself is MoonlightLanSt
 - Bilingual UI (follows the system language), tray icon, single instance, no console windows,
   flat custom-drawn UI with PerMonitorV2 high-DPI support
 
+### Stability note (v1.3.5)
+
+Host presence is now `port probe OR sunshine.exe alive`, debounced over 4 polls (~6 s) before a stop
+signal is broadcast; a client that is already watching only leaves after 15 s of *continuous* probe
+failure (a real stop is signalled instantly by `LMSQ`). Older builds killed Moonlight after two failed
+probes (≈3 s), which showed up as a class dropping out a few times per lesson. If `moonlight.log` shows
+`exit code = 1`, the app terminated Moonlight itself — that is not a crash.
+
 ### Audio design
 
 Sunshine only captures the system playback device (WASAPI loopback) and its Mic channel is not implemented
@@ -314,10 +329,10 @@ winget install Microsoft.VisualStudio.2022.BuildTools -e --override `
 
 cd src
 powershell -ExecutionPolicy Bypass -File .\make_runtimes.ps1            # packs Sunshine+Moonlight into Resources\runtimes.zip
-powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.4     # add -SkipSign to skip code signing
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.5     # add -SkipSign to skip code signing
 ```
 
-Output: `dist\月光极速电子教室-v1.3.4.exe` (~73 MB, runtimes embedded). You can also open
+Output: `dist\月光极速电子教室-v1.3.5.exe` (~73 MB, runtimes embedded). You can also open
 `src\MoonlightLanStreamer.csproj` in Visual Studio 2022 directly (classic project format).
 
 ### Configuration

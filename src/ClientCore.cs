@@ -265,6 +265,7 @@ namespace MoonlightLanStreamer
                 int code = -1;
                 try { code = p.ExitCode; } catch { }
                 write("exit code = " + code +
+                      (code == 1 ? "（1 = 本机主动结束，taskkill 的固定退出码，不是崩溃）" : "") +
                       (code == -1073741515 || code == -1073741511
                           ? "（缺少 VC++ 运行库 / 依赖 DLL，静态链接问题）" : ""));
             }) { IsBackground = true }.Start();

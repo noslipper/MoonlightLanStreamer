@@ -1,13 +1,13 @@
 ﻿# MoonlightLanStreamer（月光极速电子教室 / .NET Framework 4.8 + WinForms）—— 一键构建脚本
 # 用法（在 src\ 目录下）：
-#   powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.4
+#   powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 1.3.5
 #
 # 前置：Windows 10/11 自带 .NET Framework 4.8 运行时；编译需要下列任一项：
 #   - Visual Studio 2019/2022（含 ".NET 桌面开发" 工作负载）
 #   - Visual Studio Build Tools + ".NET Framework 4.8 SDK / 目标包"
 #   - .NET Framework 4.8 Developer Pack（提供 csc/msbuild）
 param(
-    [string]$Version = "1.3.4",
+    [string]$Version = "1.3.5",
     [string]$Configuration = "Release",
     [string]$MSBuild = "",
     [switch]$SkipSign
