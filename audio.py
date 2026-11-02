@@ -119,11 +119,10 @@ class MicMonitor:
 
     # ---- 状态 ----
     def level(self):
-        """0.0 ~ 1.0 的输入电平（带峰值回落，便于指示器观感）。"""
+        """0.0 ~ 1.0 的输入电平。读取本身无副作用（衰减放在采集侧），
+        这样界面刷新频率不会影响读数。"""
         with self._lock:
-            v = self._level
-            self._level = v * 0.82            # 每次读取后自然衰减
-            return min(1.0, v)
+            return min(1.0, self._level)
 
     def is_running(self):
         return self._running
@@ -292,8 +291,8 @@ class MicMonitor:
             db = 20.0 * math.log10(max(rms, 1.0) / 32768.0)
             lv = max(0.0, min(1.0, (db + 55.0) / 55.0))
             with self._lock:
-                if lv > self._level:
-                    self._level = lv
+                # 上升快、回落慢，观感接近真实音频表（每 80ms 采样一次）
+                self._level = lv if lv >= self._level else self._level * 0.72
         except Exception:
             pass
 
