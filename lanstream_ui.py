@@ -11,6 +11,7 @@ import win32con
 import win32api
 from PIL import Image, ImageWin
 import icons
+import i18n
 
 # ---- 常量（部分不在 win32con 中）----
 NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
@@ -111,13 +112,19 @@ def _pil_to_hbitmap(im, size=16):
 class Tray:
     """系统托盘。on: dict，命令 -> 线程安全回调（建议推入队列由主线程消费）。"""
 
-    ITEMS = [
-        ("开播", "play", "start"),
-        ("停止", "stop", "stop"),
-        None,                                   # 分割线：开播/停止 与 收看/退出 隔开
-        ("收看", "watch", "watch"),
-        ("退出", "quit", "quit"),
-    ]
+    # 菜单项按当前界面语言在运行时生成（text, icon, command）
+    @staticmethod
+    def items():
+        return [
+            (i18n.t("start"), "play", "start"),
+            (i18n.t("stop"), "stop", "stop"),
+            None,                               # 分割线：开播/停止 与 收看/退出 隔开
+            (i18n.t("watch"), "watch", "watch"),
+            (i18n.t("quit"), "quit", "quit"),
+        ]
+
+    # 兼容旧代码引用
+    ITEMS = property(lambda self: self.items())
 
     def __init__(self, on, disabled=()):
         self.on = on
@@ -173,7 +180,7 @@ class Tray:
         # 在高 DPI(125%/150%) 下比直接给 16px 更清晰。
         self._hicon = _pil_to_hicon(icons.load_app_icon(64), 32)
         self._nid = (self.hwnd, 0, NIF_MESSAGE | NIF_ICON | NIF_TIP,
-                     WM_TRAY, self._hicon, "月光极速电子教室")
+                     WM_TRAY, self._hicon, i18n.t("app_title"))
         win32gui.Shell_NotifyIcon(NIM_ADD, self._nid)
 
         try:
@@ -211,7 +218,9 @@ class Tray:
                 self._show_menu()
                 return 0
         elif msg == win32con.WM_COMMAND:
-            self._emit(self._cmd_of(low16(wparam)))
+            cmd = self._cmd_of(low16(wparam))
+            if cmd:                       # 未知命令不当作退出（曾默认返回 quit，导致误退出）
+                self._emit(cmd)
             return 0
         elif msg == win32con.WM_DESTROY:
             win32gui.PostQuitMessage(0)
@@ -226,7 +235,7 @@ class Tray:
             _, _, cmd = item
             if _id_of(cmd) == low:
                 return cmd
-        return "quit"
+        return None           # 未知命令：忽略（绝不能默认成 quit）
 
     def _show_menu(self):
         hm = win32gui.CreatePopupMenu()
@@ -262,7 +271,9 @@ class Tray:
                 pass
         self._keep_hbmp = []
         if chosen:
-            self._emit(self._cmd_of(chosen))
+            cmd = self._cmd_of(chosen)
+            if cmd:
+                self._emit(cmd)
 
     def _set_item_bitmap(self, hm, item_id, hbmp):
         mii = _MENUITEMINFO()

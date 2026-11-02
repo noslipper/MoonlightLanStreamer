@@ -61,3 +61,71 @@
 
 Sunshine、Moonlight、NVIDIA、AMD、Intel 等名称与商标归各自所有者所有。
 本项目为第三方作品，与上述组织无隶属或背书关系。
+
+---
+---
+
+# Third-Party Components and Licenses
+
+MoonClass LanStream **embeds and invokes** the following open-source components at runtime.
+The repository source does not redistribute their binaries; the build packs them from your local
+installation directory via `make_runtimes.py`.
+
+## 1. Sunshine (streaming server)
+
+- Project: https://github.com/LizardByte/Sunshine
+- Use: bundled as the server runtime (`sunshine/sunshine.exe`); launched by this app with a generated config
+- License: **GNU GPL v3.0**
+- Notes: invoked through command-line arguments and local HTTP/HTTPS endpoints (47984 / 47989 / 47990);
+  its source is not modified. Window titles, logs and network identifiers come from the upstream implementation.
+
+## 2. Moonlight (streaming client)
+
+- Project: https://github.com/moonlight-stream/moonlight-qt
+- Use: bundled as the client runtime (`client/Moonlight.exe`); renders the received stream
+- License: **GNU GPL v3.0**
+- Notes: driven through the `Moonlight.exe pair / stream / list` subcommands; its source is not modified.
+
+## 3. Material Design Icons (UI icons)
+
+- Project: https://materialdesignicons.com/ (SVG assets fetched via the Iconify API)
+- Use: button and tray menu icons; rasterized to 96px alpha masks with `resvg` at build time and
+  embedded as base64 in `icon_data.py`; only scaled and tinted at runtime
+- License: **Apache License 2.0**
+
+## 4. Pillow (image processing)
+
+- Project: https://python-pillow.org/
+- Use: icon scaling/tinting, rounded shapes and progress bar rendering
+- License: **HPND License** (Pillow Software License)
+
+## 5. pywin32 (Windows API bindings)
+
+- Project: https://github.com/mhammond/pywin32
+- Use: system tray (`Shell_NotifyIcon`), window foregrounding, menu bitmaps
+- License: **PSF-2.0**
+
+## 6. Python / Tcl-Tk
+
+- Python: https://www.python.org/ (PSF License)
+- Tcl/Tk: https://www.tcl.tk/ (BSD-style License)
+- Use: runtime and graphical interface
+
+---
+
+## About the combined distribution license
+
+Because the packaged build contains the GPL-3.0 Sunshine and Moonlight, **the combined distribution
+must comply with GPL-3.0**: when distributing binaries you must also provide the corresponding source
+code (including how to obtain the upstream Sunshine / Moonlight sources and this project's source).
+See `LICENSE` in the repository root.
+
+If you only use this repository's source (without packaging the upstream binaries), the source itself
+is also released under GPL-3.0.
+
+---
+
+## Trademarks
+
+Sunshine, Moonlight, NVIDIA, AMD, Intel and other names and trademarks belong to their respective
+owners. This is a third-party project with no affiliation with or endorsement by those organizations.

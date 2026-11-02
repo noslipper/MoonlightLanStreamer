@@ -1,10 +1,10 @@
-# 月光极速电子教室 —— 一键构建脚本（交付单文件 EXE）
+﻿# 月光极速电子教室 —— 一键构建脚本（交付单文件 EXE）
 # 用法：
-#   powershell -ExecutionPolicy Bypass -File .\build_exe.ps1 -Version 1.2.0
+#   powershell -ExecutionPolicy Bypass -File .\build_exe.ps1 -Version 1.3.0
 # 前置：Python 3.12 x64（需自带 Tcl/Tk）、已安装 Sunshine 与 Moonlight（供 make_runtimes.py 收集运行时）
 param(
     [string]$Python  = "",
-    [string]$Version = "1.2.0"
+    [string]$Version = "1.3.0"
 )
 $ErrorActionPreference = "Stop"
 
@@ -27,10 +27,19 @@ $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Push-Location $dir
 try {
     # 2) 安装依赖（pywin32 用于托盘/窗口操作，Pillow 用于图标与界面绘制）
-    & $py -m pip install --quiet --upgrade pyinstaller pillow pywin32 2>&1 | Out-Null
+    #    离线/代理环境 pip 可能失败：仅提示，不中断构建（依赖已装即可继续）
+    try {
+        & $py -m pip install --quiet --upgrade pyinstaller pillow pywin32 2>$null | Out-Null
+    }
+    catch {
+        Write-Host "提示：pip 更新依赖失败，继续使用已安装版本"
+    }
 
-    # 3) 生成应用图标 icon.ico
-    & $py make_icon.py
+    # 3) 图标：icon.ico 为设计稿（16~256 多尺寸），构建时绝不能覆盖；
+    #    仅在文件缺失时兜底生成一个
+    if (-not (Test-Path -LiteralPath "$dir\icon.ico")) {
+        & $py make_icon.py
+    }
 
     # 4) 将 Sunshine + Moonlight 运行时打包为 runtimes.zip
     #    （首次运行时解压到 %LOCALAPPDATA%\LanStream，之后秒启动）

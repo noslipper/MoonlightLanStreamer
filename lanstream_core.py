@@ -23,6 +23,8 @@ import ctypes
 import datetime
 from pathlib import Path
 
+import i18n
+
 APP_NAME = "月光极速电子教室"
 VERSION = "1.0.3"
 SUNSHINE_PORT = 47989          # 控制端口（web UI = 47990）
@@ -275,7 +277,7 @@ def write_config(sunshine_exe: Path, port=SUNSHINE_PORT, bitrate_kbps=10000,
           ["keyboard = disabled", "mouse = disabled", "controller = disabled"]
     conf = [
         "# ==== 月光极速电子教室 核心配置 ====",
-        "locale = zh",
+        "locale = " + ("zh" if i18n.is_zh() else "en"),
         "sunshine_name = " + name,
         "min_log_level = info",
         "system_tray = disabled",
@@ -296,6 +298,10 @@ def write_config(sunshine_exe: Path, port=SUNSHINE_PORT, bitrate_kbps=10000,
         "",
         "# 固定 PIN：多台学生机（1v多）自动配对，无需 GUI 输入",
         "pin = " + FIXED_PIN,
+        "",
+        "# 音频：捕获默认播放设备的 loopback，课件/视频声音随串流一起发给学生端",
+        "# （audio_sink 留空 = 自动选系统默认输出设备；麦克风见 README 说明）",
+        "stream_audio = enabled",
         "",
         "# 编码：NVENC P1 最低延迟",
         "encoder = nvenc",
@@ -351,12 +357,12 @@ def start_server(port=SUNSHINE_PORT, bitrate_kbps=10000, fps=60, hevc=True,
         except Exception:
             pass
 
-    prog(3, "检查运行环境")
+    prog(3, i18n.t("p_check_env"))
     sunshine = find_sunshine()
     if sunshine is None:
-        return {"ok": False, "msg": "未找到 Sunshine，请先安装"}
+        return {"ok": False, "msg": i18n.t("no_sunshine")}
     if service_status() == "running":
-        prog(8, "停止系统服务")
+        prog(8, i18n.t("p_stop_svc"))
         try:
             stop_sunshine_service()
         except Exception:
@@ -364,7 +370,7 @@ def start_server(port=SUNSHINE_PORT, bitrate_kbps=10000, fps=60, hevc=True,
     time.sleep(1)
     if input_on is None:
         input_on = input_enabled()
-    prog(18, "写入串流配置")
+    prog(18, i18n.t("p_write_cfg"))
     cfg = write_config(sunshine, port, bitrate_kbps, fps, hevc, input_on=input_on)
     # Sunshine 6.x 需要自身 config 目录存在（Web/HTTPS 接口依赖），
     # 且其 config/credentials 必须与运行时配置目录一致，否则 HTTPS(47984/47990) 无法启动。
@@ -380,15 +386,16 @@ def start_server(port=SUNSHINE_PORT, bitrate_kbps=10000, fps=60, hevc=True,
                 shutil.copyfile(src, sun_cred / f)
     except Exception:
         pass
-    prog(38, "同步证书")
+    prog(38, i18n.t("p_sync_cert"))
     # 一键开播时自动放行串流端口（HTTPS 配对 47984 / 控制 47989 / 流 48010）
-    prog(52, "放行端口")
+    prog(52, i18n.t("p_firewall"))
     try:
         ensure_firewall()
     except Exception:
         pass
-    prog(66, "启动服务端")
+    prog(66, i18n.t("p_start_srv"))
     logf = open(app_data_dir() / "sunshine.log", "w", encoding="utf-8", errors="replace")
+    reset_client_count()          # 日志已被重写，客户端会话计数从头开始
     # 固定 PIN：通过 /api/pin 守护线程自动确认（1v多自动配对）。
     # 关键：不要加 -0（stdin 读 PIN）——Sunshine 6.x 的 -0 模式会让配对会话
     # 无法出现在 /api/pin 列表，导致 pairchallenge 一直挂起（408 Pairing session expired）。
@@ -406,21 +413,22 @@ def start_server(port=SUNSHINE_PORT, bitrate_kbps=10000, fps=60, hevc=True,
                 ready = True
                 break
             if i % 3 == 0:
-                prog(70 + min(20, i // 2), "等待端口就绪")
+                prog(70 + min(20, i // 2), i18n.t("p_wait_port"))
             time.sleep(0.4)
     st = load_state()
     st.update({"port": port, "bitrate": bitrate_kbps, "fps": fps,
                "hevc": hevc, "name": "月光极速电子教室", "pin": FIXED_PIN, "host": _self_ip()})
     _save_state(st)
     # 服务端就绪后启动 PIN 守护线程：自动确认所有学生端配对（1v多）
-    prog(94, "启动配对守护")
+    prog(94, i18n.t("p_pin_guard"))
     try:
         _start_pin_guard()
     except Exception:
         pass
-    prog(100, "开播完成")
+    prog(100, i18n.t("p_done"))
     return {"ok": ready, "pin": FIXED_PIN, "port": port,
-            "msg": "已开播" if ready else "启动中", "ips": lan_ips()}
+            "msg": i18n.t("st_ready") if ready else i18n.t("st_starting"),
+            "ips": lan_ips()}
 
 
 _pin_guard_stop = threading.Event()
@@ -510,14 +518,54 @@ def stop_server():
             except Exception:
                 pass
         _server_proc = None
+    reset_client_count()          # 服务端已停，客户端计数归零
 
 # ---------------- 状态检测 ----------------
 _LOCAL_LOOPBACK = ("127.0.0.1", "0.0.0.0", "::1", "::", "[::1]")
 
+# 在线客户端计数：以 Sunshine 日志里的会话事件为准。
+# 为什么不用 TCP 连接表：Sunshine 串流时视频走 UDP(48000)，RTSP 控制连接是短连接，
+# 采样时刻 48010 上几乎只有 TIME_WAIT、没有 ESTABLISHED，按连接数统计会恒为 0
+# （表现为状态栏"已连接 N 台"永远不更新）。日志事件则与服务端内部状态一致：
+#   Info: CLIENT CONNECTED / Info: CLIENT DISCONNECTED
+_sess_lock = threading.Lock()
+_sess_state = {"path": None, "offset": 0, "count": 0}
+
+
+def _log_client_count() -> int:
+    """增量读取 sunshine.log，按 CLIENT CONNECTED / DISCONNECTED 事件统计在线数。"""
+    with _sess_lock:
+        path = str(app_data_dir() / "sunshine.log")
+        try:
+            size = os.path.getsize(path)
+            if _sess_state["path"] != path or size < _sess_state["offset"]:
+                # 换路径或日志被截断（每次开播都会重写）：从头重新统计
+                _sess_state.update({"path": path, "offset": 0, "count": 0})
+            if size == _sess_state["offset"]:
+                return _sess_state["count"]
+            with open(path, "rb") as f:
+                f.seek(_sess_state["offset"])
+                data = f.read()
+                _sess_state["offset"] = f.tell()
+            for ln in data.decode("utf-8", "replace").splitlines():
+                if "CLIENT CONNECTED" in ln:
+                    _sess_state["count"] += 1
+                elif "CLIENT DISCONNECTED" in ln:
+                    _sess_state["count"] = max(0, _sess_state["count"] - 1)
+            return _sess_state["count"]
+        except Exception:
+            return _sess_state["count"]
+
+
+def reset_client_count():
+    """开播/停播时重置计数（日志会被新一轮覆盖）。"""
+    with _sess_lock:
+        _sess_state.update({"path": None, "offset": 0, "count": 0})
+
 
 def _stream_peers() -> set:
-    """返回当前连到本机串流端口（47984-48010）的远端 IP 集合（含本机回环）。
-    Sunshine 的串流/控制连接都落在这个端口区间，按远端 IP 去重即为在线客户端。"""
+    """兜底：TCP 连接表里连到本机串流端口（47984-48010）的远端 IP。
+    仅当日志不可用（例如 Sunshine 由外部启动、未重定向日志）时参考。"""
     peers = set()
     try:
         out = _sp_run(["netstat", "-ano"], capture_output=True, text=True,
@@ -542,6 +590,9 @@ def _stream_peers() -> set:
 
 def client_count() -> int:
     """当前在线客户端数量（不含本机回环连接）。"""
+    n = _log_client_count()
+    if n > 0:
+        return n
     return len([ip for ip in _stream_peers() if ip not in _LOCAL_LOOPBACK])
 
 
@@ -549,15 +600,20 @@ def server_status() -> dict:
     """真实开播/直播状态：端口、活动连接、在线客户端数量。"""
     port = int(load_state().get("port", SUNSHINE_PORT))
     running = _port_open(port, timeout=0.25)
-    peers = _stream_peers()
-    streaming = bool(peers)
-    clients = len([ip for ip in peers if ip not in _LOCAL_LOOPBACK])
+    clients = _log_client_count() if running else 0
+    streaming = clients > 0
+    if running and not streaming:
+        # 日志没数到时才回退查 TCP 连接表（有客户端时零额外开销）
+        peers = _stream_peers()
+        clients = len([ip for ip in peers if ip not in _LOCAL_LOOPBACK])
+        streaming = bool(peers)
     return {"running": running, "streaming": streaming, "clients": clients,
-            "text": "正在直播" if streaming else ("已开播" if running else "未开播")}
+            "text": (i18n.t("st_live") if streaming else
+                     (i18n.t("st_ready") if running else i18n.t("st_off")))}
 
 
 def _any_streaming() -> bool:
-    return bool(_stream_peers())
+    return client_count() > 0 or bool(_stream_peers())
 
 def _port_open(port, host="127.0.0.1", timeout=0.4) -> bool:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -620,7 +676,7 @@ def set_input_enabled(enabled: bool, restart=True) -> dict:
     _set_input_enabled(enabled)
     sunshine = find_sunshine()
     if sunshine is None:
-        return {"ok": False, "msg": "未找到 Sunshine"}
+        return {"ok": False, "msg": i18n.t("no_sunshine")}
     if server_alive():
         write_config(sunshine, input_on=enabled)   # 让下一次会话生效
         if restart:
@@ -893,7 +949,7 @@ def _client_has_srvcert() -> bool:
 def pair_client(host, pin) -> tuple[bool, str]:
     m = find_moonlight()
     if m is None:
-        return False, "未找到 Moonlight"
+        return False, i18n.t("no_moonlight")
     _clear_moonlight_hosts()             # 先清残留，避免 “unexpected PC” 导致配对失败
     # PIN 由教师端 _pin_guard（localhost 轮询 /api/pin）自动提交；学生端不再跨机器
     # POST（Sunshine 的 CSRF/Origin 保护会挂起非 localhost 的 POST，反而阻塞教师端提交）。
@@ -933,29 +989,31 @@ def pair_client(host, pin) -> tuple[bool, str]:
         except Exception:
             pass
         ok = _client_has_srvcert() or is_paired(host)
-    return ok, ("配对完成" if ok else "配对失败/超时")
+    return ok, (i18n.t("pair_ok") if ok else i18n.t("pair_fail"))
 
 def stream_client(host, app="Desktop", bitrate_kbps=10000, fps=60, hevc=True,
                   fullscreen=True) -> tuple[bool, str]:
     m = find_moonlight()
     if m is None:
-        return False, "未找到 Moonlight"
+        return False, i18n.t("no_moonlight")
     args = [str(m), "stream", host, app, "--bitrate", str(bitrate_kbps),
             "--fps", str(fps), "--video-codec", "HEVC" if hevc else "H.264",
             "--display-mode", "fullscreen" if fullscreen else "windowed",
+            # 音频：立体声、在本机（学生端）播放，声音随串流一起传过来
+            "--audio-config", "stereo", "--no-audio-on-host",
             "--no-vsync", "--no-hdr", "--video-decoder", "hardware"]
     # 只有确认配对成功后才调用这里：此时才让 Moonlight 主窗口出现
     _sp_popen(args, hidden=False)
-    return True, "已连接 " + host
+    return True, i18n.t("watching_host", host)
 
 def watch(host, pin=None, auto_pair=True, bitrate_kbps=10000, fps=60) -> dict:
     m = find_moonlight()
     if m is None:
-        return {"ok": False, "msg": "未找到 Moonlight"}
+        return {"ok": False, "msg": i18n.t("no_moonlight")}
     if not is_paired(host):
         # 自动配对：使用固定 PIN，客户端本地自动提交，无需教师端输入、界面不显示
         if not auto_pair:
-            return {"ok": False, "msg": "未配对，请先开播"}
+            return {"ok": False, "msg": i18n.t("not_paired")}
         # 最多重试 3 次（每次配对含超时强杀，避免反复弹窗）
         last = ""
         for _try in range(3):
@@ -965,7 +1023,7 @@ def watch(host, pin=None, auto_pair=True, bitrate_kbps=10000, fps=60) -> dict:
             last = info
             time.sleep(8)
         else:
-            return {"ok": False, "msg": "配对失败：" + last}
+            return {"ok": False, "msg": i18n.t("pair_fail_prefix") + last}
     # 配对就绪 → 立即启动收看（否则 Moonlight 进程退出即“闪退”）
     ok, msg = stream_client(host, bitrate_kbps=bitrate_kbps, fps=fps)
     return {"ok": ok, "msg": msg}
