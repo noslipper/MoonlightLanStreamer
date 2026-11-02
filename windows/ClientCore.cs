@@ -19,33 +19,77 @@ namespace MoonClass
             catch { return null; }
         }
 
-        /// <summary>is_paired 的等价实现：hosts 下存在带真实 srvcert 的主机项。</summary>
+        /// <summary>是否已配对：与 1.2.0 一致，以 `moonlight list <host>` 为准。
+        ///
+        /// 绝不能只看注册表 hosts 下的 hostname——Moonlight 6.x 保存的是**对方主机名**
+        /// （例如 MoonClass-Room），不是我们输入的 IP。用 IP 去比对永远不相等，会导致：
+        ///   已配对 → 误判未配对 → 清空 hosts 重新配对 → 配对期间 taskkill Moonlight
+        ///   → 表现为"刚连上就闪退、一直重连"，且清掉的是本来能用的配对。
+        /// 只有服务端真的回了应用列表（rc=0 且 stdout 非空）才算已配对。</summary>
         public static bool IsPaired(string host)
         {
+            string m = Runtime.FindMoonlight();
+            if (m == null) return false;
+
+            string o = "", e = "";
+            int rc;
+            if (!RunMoonlight(m, "list " + host, 25000, out o, out e, out rc)) return false;
+
+            bool paired = rc == 0 && o.Trim().Length > 0 &&
+                          e.IndexOf("not been paired", StringComparison.OrdinalIgnoreCase) < 0;
+            AppendLine("· 配对检查 list " + host + " → rc=" + rc +
+                       " apps=[" + OneLine(o) + "] paired=" + paired);
+            return paired;
+        }
+
+        /// <summary>跑一次 Moonlight 命令行动作，stdout/stderr 并发读走（单路 ReadToEnd 会死锁）。</summary>
+        static bool RunMoonlight(string exe, string args, int timeoutMs,
+                                 out string stdout, out string stderr, out int exitCode)
+        {
+            stdout = ""; stderr = ""; exitCode = -1;
+            Process p;
             try
             {
-                using (RegistryKey root = OpenRoot(false))
-                {
-                    if (root == null) return false;
-                    using (RegistryKey hosts = root.OpenSubKey("hosts"))
-                    {
-                        if (hosts == null) return false;
-                        foreach (string name in hosts.GetSubKeyNames())
-                        {
-                            using (RegistryKey h = hosts.OpenSubKey(name))
-                            {
-                                if (h == null) continue;
-                                string hn = Convert.ToString(h.GetValue("hostname", ""));
-                                if (hn != host && hn != "127.0.0.1" && hn != "localhost") continue;
-                                string cert = Convert.ToString(h.GetValue("srvcert", ""));
-                                if (cert != null && cert.Length > 200) return true;
-                            }
-                        }
-                    }
-                }
+                var psi = new ProcessStartInfo();
+                psi.FileName = exe;
+                psi.Arguments = args;
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                p = Process.Start(psi);
             }
-            catch { }
-            return false;
+            catch (Exception ex)
+            {
+                AppendLine("✗ 启动 Moonlight 失败(" + args + "): " + ex.Message);
+                return false;
+            }
+            if (p == null) return false;
+
+            var sbOut = new System.Text.StringBuilder();
+            var sbErr = new System.Text.StringBuilder();
+            var t1 = new Thread(delegate () { try { sbOut.Append(p.StandardOutput.ReadToEnd()); } catch { } }) { IsBackground = true };
+            var t2 = new Thread(delegate () { try { sbErr.Append(p.StandardError.ReadToEnd()); } catch { } }) { IsBackground = true };
+            t1.Start(); t2.Start();
+
+            bool exited = p.WaitForExit(timeoutMs);
+            if (!exited)
+            {
+                try { p.Kill(); } catch { }
+                try { p.WaitForExit(2000); } catch { }
+            }
+            t1.Join(3000); t2.Join(3000);
+            stdout = sbOut.ToString();
+            stderr = sbErr.ToString();
+            try { exitCode = p.ExitCode; } catch { exitCode = -1; }
+            return exited || stdout.Length > 0;
+        }
+
+        static string OneLine(string s)
+        {
+            if (s == null) return "";
+            s = s.Replace("\r", " ").Replace("\n", " ").Replace("  ", " ").Trim();
+            return s.Length > 120 ? s.Substring(0, 120) + "…" : s;
         }
 
         /// <summary>客户端是否已写入真实服务端证书（配对成功的标志）。</summary>
@@ -159,7 +203,11 @@ namespace MoonClass
                 " --bitrate " + bitrateKbps +
                 " --fps " + fps +
                 " --video-codec " + (hevc ? "HEVC" : "H.264") +
-                " --display-mode " + (fullscreen ? "fullscreen" : "windowed") +
+                // 用 borderless 而不是 fullscreen：独占全屏（exclusive fullscreen）在
+                // 桌面被锁屏/远程会话/无交互桌面时会被系统直接 WM_CLOSE，Moonlight 收到
+                // SDL_QUIT 后优雅退出（exit code 0）——表现就是"刚连上几秒就闪退、然后一直重连"。
+                // borderless 同样铺满整屏、没有标题栏，但走普通窗口模式，不受这个限制。
+                " --display-mode " + (fullscreen ? "borderless" : "windowed") +
                 " --audio-config stereo --no-audio-on-host" +
                 " --no-vsync --no-hdr --video-decoder hardware";
             psi.UseShellExecute = false;
